@@ -11,10 +11,6 @@ const heebo = Heebo({
 export const metadata: Metadata = {
   title: 'מעקב רכש בינלאומי',
   description: 'מערכת לניהול הזמנות רכש מספקים בינלאומיים',
-  icons: {
-    icon: '/Logo.png',
-    apple: '/Logo.png',
-  },
 };
 
 export default function RootLayout({
