@@ -9,6 +9,7 @@ import Spinner from '@/components/ui/Spinner';
 import OrderCard from '@/components/orders/OrderCard';
 import NewOrderModal from '@/components/orders/NewOrderModal';
 import { useToast } from '@/components/ui/Toast';
+import Image from 'next/image';
 import {
   PlusIcon,
   MagnifyingGlassIcon,
@@ -93,7 +94,10 @@ export default function HomePage() {
       <header className="bg-white border-b sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-gray-900">מעקב רכש בינלאומי</h1>
+            <div className="flex items-center gap-3">
+              <Image src="/Logo.png" alt="Logo" width={40} height={40} />
+              <h1 className="text-2xl font-bold text-gray-900">מעקב רכש בינלאומי</h1>
+            </div>
             <Button onClick={() => setShowNewOrderModal(true)}>
               <PlusIcon className="w-5 h-5" />
               הזמנה חדשה
