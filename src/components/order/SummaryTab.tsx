@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Order, Milestone } from '@/lib/sheets';
+import { useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 import { formatCurrency, formatNumber, formatDate } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
@@ -13,6 +14,26 @@ import {
   ClockIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
+
+interface Order {
+  orderId: string;
+  orderName: string;
+  createdDate: string;
+  usdRate: number;
+  cnyRate: number;
+  estimatedArrival?: string;
+  notes?: string;
+}
+
+interface Milestone {
+  milestoneId: string;
+  orderId: string;
+  milestoneTypeId: string;
+  targetDate?: string;
+  actualDate?: string;
+  status?: string;
+  notes?: string;
+}
 
 interface SummaryTabProps {
   order: Order;
@@ -27,41 +48,38 @@ interface SummaryTabProps {
     totalKG: number;
   };
   milestones: Milestone[];
-  onRefresh: () => void;
 }
 
 export default function SummaryTab({
   order,
   summary,
   milestones,
-  onRefresh,
 }: SummaryTabProps) {
   const { showToast } = useToast();
+  const addOrderMilestoneMutation = useMutation(api.milestones.addOrderMilestone);
+  const updateOrderMilestoneMutation = useMutation(api.milestones.updateOrderMilestone);
+  const deleteOrderMilestoneMutation = useMutation(api.milestones.deleteOrderMilestone);
+
   const [showAddMilestone, setShowAddMilestone] = useState(false);
   const [newMilestone, setNewMilestone] = useState({
     description: '',
-    target_date: '',
-    actual_date: '',
+    targetDate: '',
     notes: '',
   });
 
   const handleAddMilestone = async () => {
     try {
-      const response = await fetch('/api/milestones', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          order_id: order.order_id,
-          ...newMilestone,
-        }),
+      await addOrderMilestoneMutation({
+        orderId: order.orderId,
+        milestoneTypeId: 'custom',
+        targetDate: newMilestone.targetDate || undefined,
+        status: newMilestone.description,
+        notes: newMilestone.notes || undefined,
       });
-
-      if (!response.ok) throw new Error('Failed to add milestone');
 
       showToast('מיילסטון נוסף בהצלחה', 'success');
       setShowAddMilestone(false);
-      setNewMilestone({ description: '', target_date: '', actual_date: '', notes: '' });
-      onRefresh();
+      setNewMilestone({ description: '', targetDate: '', notes: '' });
     } catch (error) {
       console.error('Error adding milestone:', error);
       showToast('שגיאה בהוספת מיילסטון', 'error');
@@ -72,14 +90,8 @@ export default function SummaryTab({
     if (!confirm('האם למחוק את המיילסטון?')) return;
 
     try {
-      const response = await fetch(`/api/milestones/${milestoneId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) throw new Error('Failed to delete milestone');
-
+      await deleteOrderMilestoneMutation({ milestoneId });
       showToast('מיילסטון נמחק', 'success');
-      onRefresh();
     } catch (error) {
       console.error('Error deleting milestone:', error);
       showToast('שגיאה במחיקת מיילסטון', 'error');
@@ -88,16 +100,12 @@ export default function SummaryTab({
 
   const handleUpdateMilestone = async (milestoneId: string, actualDate: string) => {
     try {
-      const response = await fetch(`/api/milestones/${milestoneId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ actual_date: actualDate }),
+      await updateOrderMilestoneMutation({
+        milestoneId,
+        actualDate,
       });
 
-      if (!response.ok) throw new Error('Failed to update milestone');
-
       showToast('מיילסטון עודכן', 'success');
-      onRefresh();
     } catch (error) {
       console.error('Error updating milestone:', error);
       showToast('שגיאה בעדכון מיילסטון', 'error');
@@ -112,23 +120,23 @@ export default function SummaryTab({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <p className="text-sm text-gray-500">מזהה</p>
-            <p className="font-medium">{order.order_id}</p>
+            <p className="font-medium">{order.orderId}</p>
           </div>
           <div>
             <p className="text-sm text-gray-500">תאריך יצירה</p>
-            <p className="font-medium">{formatDate(order.created_date)}</p>
+            <p className="font-medium">{formatDate(order.createdDate)}</p>
           </div>
           <div>
             <p className="text-sm text-gray-500">שער דולר</p>
-            <p className="font-medium">{formatNumber(order.usd_rate, 2)}</p>
+            <p className="font-medium">{formatNumber(order.usdRate, 2)}</p>
           </div>
           <div>
             <p className="text-sm text-gray-500">שער יואן</p>
-            <p className="font-medium">{formatNumber(order.cny_rate, 2)}</p>
+            <p className="font-medium">{formatNumber(order.cnyRate, 2)}</p>
           </div>
           <div>
             <p className="text-sm text-gray-500">הגעה משוערת</p>
-            <p className="font-medium">{order.estimated_arrival ? formatDate(order.estimated_arrival) : '-'}</p>
+            <p className="font-medium">{order.estimatedArrival ? formatDate(order.estimatedArrival) : '-'}</p>
           </div>
           <div>
             <p className="text-sm text-gray-500">סה"כ CBM</p>
@@ -164,17 +172,17 @@ export default function SummaryTab({
             {/* Timeline with date range */}
             {(() => {
               const sorted = [...milestones].sort((a, b) => {
-                const dateA = a.target_date || a.actual_date || '';
-                const dateB = b.target_date || b.actual_date || '';
+                const dateA = a.targetDate || a.actualDate || '';
+                const dateB = b.targetDate || b.actualDate || '';
                 return dateA.localeCompare(dateB);
               });
 
               // Calculate date range
-              const startDate = order.created_date ? new Date(order.created_date) : new Date();
-              const endDate = order.estimated_arrival
-                ? new Date(order.estimated_arrival)
+              const startDate = order.createdDate ? new Date(order.createdDate) : new Date();
+              const endDate = order.estimatedArrival
+                ? new Date(order.estimatedArrival)
                 : sorted.length > 0
-                ? new Date(sorted[sorted.length - 1].target_date || sorted[sorted.length - 1].actual_date || new Date())
+                ? new Date(sorted[sorted.length - 1].targetDate || sorted[sorted.length - 1].actualDate || new Date())
                 : new Date();
 
               const totalDays = Math.max(1, (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -191,8 +199,8 @@ export default function SummaryTab({
                 <div className="relative">
                   {/* Date labels */}
                   <div className="flex justify-between text-xs text-gray-400 mb-2">
-                    <span>{formatDate(order.created_date)}</span>
-                    <span>{order.estimated_arrival ? formatDate(order.estimated_arrival) : ''}</span>
+                    <span>{formatDate(order.createdDate)}</span>
+                    <span>{order.estimatedArrival ? formatDate(order.estimatedArrival) : ''}</span>
                   </div>
 
                   {/* Background line */}
@@ -201,17 +209,16 @@ export default function SummaryTab({
 
                     {/* Progress lines */}
                     {sorted.map((milestone, index) => {
-                      const isCompleted = !!milestone.actual_date;
-                      const isOverdue = !isCompleted && milestone.target_date && milestone.target_date < today;
-                      const pos = getPosition(milestone.target_date || milestone.actual_date);
+                      const isCompleted = !!milestone.actualDate;
+                      const isOverdue = !isCompleted && milestone.targetDate && milestone.targetDate < today;
+                      const pos = getPosition(milestone.targetDate || milestone.actualDate || '');
                       const prevPos = index > 0
-                        ? getPosition(sorted[index - 1].target_date || sorted[index - 1].actual_date)
+                        ? getPosition(sorted[index - 1].targetDate || sorted[index - 1].actualDate || '')
                         : 0;
-                      const prevCompleted = index > 0 && !!sorted[index - 1].actual_date;
 
                       return (
                         <div
-                          key={`line-${milestone.id}`}
+                          key={`line-${milestone.milestoneId}`}
                           className={`absolute top-6 h-1 transition-all ${
                             isCompleted ? 'bg-green-500' : isOverdue ? 'bg-red-500' : 'bg-gray-200'
                           }`}
@@ -225,9 +232,9 @@ export default function SummaryTab({
 
                     {/* Milestone dots */}
                     {sorted.map((milestone, index) => {
-                      const isCompleted = !!milestone.actual_date;
-                      const isOverdue = !isCompleted && milestone.target_date && milestone.target_date < today;
-                      const pos = getPosition(milestone.target_date || milestone.actual_date);
+                      const isCompleted = !!milestone.actualDate;
+                      const isOverdue = !isCompleted && milestone.targetDate && milestone.targetDate < today;
+                      const pos = getPosition(milestone.targetDate || milestone.actualDate || '');
 
                       const getCircleClasses = () => {
                         if (isCompleted) return 'bg-green-500 border-green-500 text-white';
@@ -237,7 +244,7 @@ export default function SummaryTab({
 
                       return (
                         <div
-                          key={milestone.id}
+                          key={milestone.milestoneId}
                           className="absolute group"
                           style={{ left: `${pos}%`, top: 0, transform: 'translateX(-50%)' }}
                         >
@@ -265,13 +272,13 @@ export default function SummaryTab({
                                 isCompleted ? 'text-green-700' : isOverdue ? 'text-red-600' : 'text-gray-600'
                               }`}
                             >
-                              {milestone.description}
+                              {milestone.status}
                             </p>
                             <p className={`text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
-                              {milestone.actual_date
-                                ? formatDate(milestone.actual_date)
-                                : milestone.target_date
-                                ? formatDate(milestone.target_date)
+                              {milestone.actualDate
+                                ? formatDate(milestone.actualDate)
+                                : milestone.targetDate
+                                ? formatDate(milestone.targetDate)
                                 : ''}
                             </p>
                             {isOverdue && (
@@ -285,7 +292,7 @@ export default function SummaryTab({
                               <button
                                 onClick={() =>
                                   handleUpdateMilestone(
-                                    milestone.id,
+                                    milestone.milestoneId,
                                     new Date().toISOString().split('T')[0]
                                   )
                                 }
@@ -296,7 +303,7 @@ export default function SummaryTab({
                               </button>
                             )}
                             <button
-                              onClick={() => handleDeleteMilestone(milestone.id)}
+                              onClick={() => handleDeleteMilestone(milestone.milestoneId)}
                               className="p-1.5 text-red-500 hover:bg-red-50 rounded"
                               title="מחק"
                             >
@@ -333,12 +340,12 @@ export default function SummaryTab({
           />
 
           <Input
-            id="target_date"
+            id="targetDate"
             label="תאריך יעד"
             type="date"
-            value={newMilestone.target_date}
+            value={newMilestone.targetDate}
             onChange={(e) =>
-              setNewMilestone({ ...newMilestone, target_date: e.target.value })
+              setNewMilestone({ ...newMilestone, targetDate: e.target.value })
             }
           />
 

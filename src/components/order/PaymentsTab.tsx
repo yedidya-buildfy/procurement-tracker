@@ -1,21 +1,62 @@
 'use client';
 
-import { useState } from 'react';
-import { Payment, Product, AdditionalCost } from '@/lib/sheets';
+import { useState, useMemo } from 'react';
+import { useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
-import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
+import {
+  PlusIcon,
+  PencilIcon,
+  TrashIcon,
+  CheckCircleIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline';
+
+interface Payment {
+  paymentId: string;
+  orderId: string;
+  date: string;
+  amount: number;
+  currency: 'USD' | 'CNY' | 'ILS';
+  payee?: string;
+  description?: string;
+  reference?: string;
+  amountILS?: number;
+  status: 'pending' | 'approved';
+}
+
+interface Product {
+  productId: string;
+  name: string;
+}
+
+interface Cost {
+  costId: string;
+  description: string;
+}
+
+interface PaymentProductLink {
+  paymentId: string;
+  productId: string;
+}
+
+interface PaymentCostLink {
+  paymentId: string;
+  costId: string;
+}
 
 interface PaymentsTabProps {
   orderId: string;
   payments: Payment[];
   products: Product[];
-  costs: AdditionalCost[];
-  onRefresh: () => void;
+  costs: Cost[];
+  paymentProductLinks: PaymentProductLink[];
+  paymentCostLinks: PaymentCostLink[];
 }
 
 const CURRENCIES = [
@@ -33,8 +74,9 @@ interface PaymentFormData {
   payee: string;
   description: string;
   reference: string;
-  product_id: string;
-  cost_id: string;
+  linkedProductIds: string[];
+  linkedCostIds: string[];
+  status: 'pending' | 'approved';
 }
 
 const emptyPayment: PaymentFormData = {
@@ -44,8 +86,9 @@ const emptyPayment: PaymentFormData = {
   payee: '',
   description: '',
   reference: '',
-  product_id: '',
-  cost_id: '',
+  linkedProductIds: [],
+  linkedCostIds: [],
+  status: 'approved',
 };
 
 export default function PaymentsTab({
@@ -53,12 +96,56 @@ export default function PaymentsTab({
   payments,
   products,
   costs,
-  onRefresh,
+  paymentProductLinks,
+  paymentCostLinks,
 }: PaymentsTabProps) {
   const { showToast } = useToast();
+  const addPaymentMutation = useMutation(api.payments.addPayment);
+  const updatePaymentMutation = useMutation(api.payments.updatePayment);
+  const updatePaymentLinksMutation = useMutation(api.payments.updatePaymentLinks);
+  const deletePaymentMutation = useMutation(api.payments.deletePayment);
+  const approvePaymentMutation = useMutation(api.payments.approvePayment);
+  const dismissPaymentMutation = useMutation(api.payments.dismissPayment);
+
   const [showModal, setShowModal] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [formData, setFormData] = useState(emptyPayment);
+
+  // Split payments into pending and approved
+  const pendingPayments = useMemo(
+    () => payments.filter((p) => p.status === 'pending'),
+    [payments]
+  );
+  const approvedPayments = useMemo(
+    () => payments.filter((p) => p.status === 'approved'),
+    [payments]
+  );
+
+  // Get linked products/costs for a payment
+  const getLinkedProductIds = (paymentId: string) =>
+    paymentProductLinks.filter((l) => l.paymentId === paymentId).map((l) => l.productId);
+
+  const getLinkedCostIds = (paymentId: string) =>
+    paymentCostLinks.filter((l) => l.paymentId === paymentId).map((l) => l.costId);
+
+  // Get linked names for display
+  const getLinkedNames = (paymentId: string) => {
+    const productIds = getLinkedProductIds(paymentId);
+    const costIds = getLinkedCostIds(paymentId);
+    const names: string[] = [];
+
+    for (const productId of productIds) {
+      const product = products.find((p) => p.productId === productId);
+      if (product) names.push(product.name);
+    }
+
+    for (const costId of costIds) {
+      const cost = costs.find((c) => c.costId === costId);
+      if (cost) names.push(cost.description);
+    }
+
+    return names.length > 0 ? names.join(', ') : '-';
+  };
 
   const openAddModal = () => {
     setEditingPayment(null);
@@ -72,37 +159,72 @@ export default function PaymentsTab({
       date: payment.date,
       amount: payment.amount,
       currency: payment.currency,
-      payee: payment.payee,
-      description: payment.description,
-      reference: payment.reference,
-      product_id: payment.product_id || '',
-      cost_id: payment.cost_id || '',
+      payee: payment.payee || '',
+      description: payment.description || '',
+      reference: payment.reference || '',
+      linkedProductIds: getLinkedProductIds(payment.paymentId),
+      linkedCostIds: getLinkedCostIds(payment.paymentId),
+      status: payment.status,
     });
     setShowModal(true);
+  };
+
+  const toggleProduct = (productId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      linkedProductIds: prev.linkedProductIds.includes(productId)
+        ? prev.linkedProductIds.filter((id) => id !== productId)
+        : [...prev.linkedProductIds, productId],
+    }));
+  };
+
+  const toggleCost = (costId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      linkedCostIds: prev.linkedCostIds.includes(costId)
+        ? prev.linkedCostIds.filter((id) => id !== costId)
+        : [...prev.linkedCostIds, costId],
+    }));
   };
 
   const handleSubmit = async () => {
     try {
       if (editingPayment) {
-        const response = await fetch(`/api/payments/${editingPayment.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData),
+        await updatePaymentMutation({
+          paymentId: editingPayment.paymentId,
+          date: formData.date,
+          amount: formData.amount,
+          currency: formData.currency,
+          payee: formData.payee || undefined,
+          description: formData.description || undefined,
+          reference: formData.reference || undefined,
+          status: formData.status,
         });
-        if (!response.ok) throw new Error('Failed to update payment');
+
+        await updatePaymentLinksMutation({
+          paymentId: editingPayment.paymentId,
+          linkedProductIds: formData.linkedProductIds,
+          linkedCostIds: formData.linkedCostIds,
+        });
+
         showToast('תשלום עודכן בהצלחה', 'success');
       } else {
-        const response = await fetch(`/api/orders/${orderId}/payments`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData),
+        await addPaymentMutation({
+          orderId,
+          date: formData.date,
+          amount: formData.amount,
+          currency: formData.currency,
+          payee: formData.payee || undefined,
+          description: formData.description || undefined,
+          reference: formData.reference || undefined,
+          status: formData.status,
+          linkedProductIds: formData.linkedProductIds,
+          linkedCostIds: formData.linkedCostIds,
         });
-        if (!response.ok) throw new Error('Failed to add payment');
         showToast('תשלום נוסף בהצלחה', 'success');
       }
 
       setShowModal(false);
-      onRefresh();
     } catch (error) {
       console.error('Error saving payment:', error);
       showToast('שגיאה בשמירת תשלום', 'error');
@@ -113,29 +235,121 @@ export default function PaymentsTab({
     if (!confirm('האם למחוק את התשלום?')) return;
 
     try {
-      const response = await fetch(`/api/payments/${paymentId}`, {
-        method: 'DELETE',
-      });
-      if (!response.ok) throw new Error('Failed to delete payment');
+      await deletePaymentMutation({ paymentId });
       showToast('תשלום נמחק', 'success');
-      onRefresh();
     } catch (error) {
       console.error('Error deleting payment:', error);
       showToast('שגיאה במחיקת תשלום', 'error');
     }
   };
 
-  const getLinkLabel = (payment: Payment) => {
-    if (payment.product_id) {
-      const product = products.find((p) => p.id === payment.product_id);
-      return product ? `מוצר: ${product.name}` : 'מוצר';
+  const handleApprove = async (paymentId: string) => {
+    try {
+      await approvePaymentMutation({ paymentId });
+      showToast('תשלום אושר', 'success');
+    } catch (error) {
+      console.error('Error approving payment:', error);
+      showToast('שגיאה באישור תשלום', 'error');
     }
-    if (payment.cost_id) {
-      const cost = costs.find((c) => c.id === payment.cost_id);
-      return cost ? `עלות: ${cost.description}` : 'עלות';
-    }
-    return 'הזמנה';
   };
+
+  const handleDismiss = async (paymentId: string) => {
+    if (!confirm('האם לבטל את התשלום הממתין?')) return;
+
+    try {
+      await dismissPaymentMutation({ paymentId });
+      showToast('תשלום ממתין בוטל', 'success');
+    } catch (error) {
+      console.error('Error dismissing payment:', error);
+      showToast('שגיאה בביטול תשלום', 'error');
+    }
+  };
+
+  const PaymentTable = ({
+    paymentsList,
+    isPending,
+  }: {
+    paymentsList: Payment[];
+    isPending: boolean;
+  }) => (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className={`border-b ${isPending ? 'bg-amber-50' : 'bg-gray-50'}`}>
+            <th className="text-right py-3 px-4 font-medium text-gray-600">תאריך</th>
+            <th className="text-right py-3 px-4 font-medium text-gray-600">נמען</th>
+            <th className="text-right py-3 px-4 font-medium text-gray-600">תיאור</th>
+            <th className="text-right py-3 px-4 font-medium text-gray-600">סכום</th>
+            <th className="text-right py-3 px-4 font-medium text-gray-600">מטבע</th>
+            <th className="text-right py-3 px-4 font-medium text-gray-600">סכום ₪</th>
+            <th className="text-right py-3 px-4 font-medium text-gray-600">אסמכתא</th>
+            <th className="text-right py-3 px-4 font-medium text-gray-600">קישור</th>
+            <th className="text-right py-3 px-4 font-medium text-gray-600">פעולות</th>
+          </tr>
+        </thead>
+        <tbody>
+          {paymentsList.map((payment) => (
+            <tr
+              key={payment.paymentId}
+              className={`border-b hover:bg-gray-50 cursor-pointer ${
+                isPending ? 'bg-amber-50/50 border-r-4 border-r-amber-400' : ''
+              }`}
+              onClick={() => openEditModal(payment)}
+            >
+              <td className="py-3 px-4">{formatDate(payment.date)}</td>
+              <td className="py-3 px-4 font-medium">{payment.payee || '-'}</td>
+              <td className="py-3 px-4">{payment.description || '-'}</td>
+              <td className="py-3 px-4">{payment.amount}</td>
+              <td className="py-3 px-4">{payment.currency}</td>
+              <td className="py-3 px-4 font-semibold text-green-600">
+                {formatCurrency(payment.amountILS || 0)}
+              </td>
+              <td className="py-3 px-4 text-gray-500">{payment.reference || '-'}</td>
+              <td className="py-3 px-4">
+                <span className="text-xs bg-gray-100 px-2 py-1 rounded max-w-[150px] truncate block">
+                  {getLinkedNames(payment.paymentId)}
+                </span>
+              </td>
+              <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                <div className="flex gap-1">
+                  {isPending && (
+                    <>
+                      <button
+                        onClick={() => handleApprove(payment.paymentId)}
+                        className="p-1.5 text-green-600 hover:bg-green-50 rounded"
+                        title="אשר תשלום"
+                      >
+                        <CheckCircleIcon className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDismiss(payment.paymentId)}
+                        className="p-1.5 text-amber-600 hover:bg-amber-50 rounded"
+                        title="בטל תשלום ממתין"
+                      >
+                        <XMarkIcon className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => openEditModal(payment)}
+                    className="p-1.5 text-gray-500 hover:bg-gray-100 rounded"
+                  >
+                    <PencilIcon className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(payment.paymentId)}
+                    className="p-1.5 text-red-500 hover:bg-red-50 rounded"
+                  >
+                    <TrashIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <div>
@@ -147,62 +361,40 @@ export default function PaymentsTab({
         </Button>
       </div>
 
-      {payments.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">אין תשלומים</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 border-b">
-                <th className="text-right py-3 px-4 font-medium text-gray-600">תאריך</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-600">נמען</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-600">תיאור</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-600">סכום</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-600">מטבע</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-600">סכום ₪</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-600">אסמכתא</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-600">קישור</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-600">פעולות</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((payment) => (
-                <tr key={payment.id} className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4">{formatDate(payment.date)}</td>
-                  <td className="py-3 px-4 font-medium">{payment.payee}</td>
-                  <td className="py-3 px-4">{payment.description}</td>
-                  <td className="py-3 px-4">{payment.amount}</td>
-                  <td className="py-3 px-4">{payment.currency}</td>
-                  <td className="py-3 px-4 font-semibold text-green-600">
-                    {formatCurrency(payment.amountILS || 0)}
-                  </td>
-                  <td className="py-3 px-4 text-gray-500">{payment.reference}</td>
-                  <td className="py-3 px-4">
-                    <span className="text-xs bg-gray-100 px-2 py-1 rounded">
-                      {getLinkLabel(payment)}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => openEditModal(payment)}
-                        className="p-1.5 text-gray-500 hover:bg-gray-100 rounded"
-                      >
-                        <PencilIcon className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(payment.id)}
-                        className="p-1.5 text-red-500 hover:bg-red-50 rounded"
-                      >
-                        <TrashIcon className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Pending Payments Section */}
+      {pendingPayments.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-amber-400"></div>
+            <h4 className="text-sm font-medium text-amber-700">
+              תשלומים ממתינים ({pendingPayments.length})
+            </h4>
+          </div>
+          <div className="border border-amber-200 rounded-lg overflow-hidden">
+            <PaymentTable paymentsList={pendingPayments} isPending={true} />
+          </div>
         </div>
+      )}
+
+      {/* Approved Payments Section */}
+      {approvedPayments.length > 0 ? (
+        <div>
+          {pendingPayments.length > 0 && (
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-2 h-2 rounded-full bg-green-500"></div>
+              <h4 className="text-sm font-medium text-green-700">
+                תשלומים מאושרים ({approvedPayments.length})
+              </h4>
+            </div>
+          )}
+          <div className="border rounded-lg overflow-hidden">
+            <PaymentTable paymentsList={approvedPayments} isPending={false} />
+          </div>
+        </div>
+      ) : (
+        pendingPayments.length === 0 && (
+          <p className="text-gray-500 text-center py-8">אין תשלומים</p>
+        )
       )}
 
       {/* Payment Modal */}
@@ -228,7 +420,6 @@ export default function PaymentsTab({
               value={formData.payee}
               onChange={(e) => setFormData({ ...formData, payee: e.target.value })}
               placeholder="למי שולם?"
-              required
             />
           </div>
 
@@ -269,44 +460,85 @@ export default function PaymentsTab({
             placeholder="מקדמה, יתרה, וכו'"
           />
 
-          {/* Link to Product/Cost */}
+          {/* Status Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              קישור ל:
-            </label>
-            <div className="grid grid-cols-2 gap-4">
-              <Select
-                id="product_id"
-                label="מוצר (אופציונלי)"
-                options={[
-                  { value: '', label: '-- ללא --' },
-                  ...products.map((p) => ({ value: p.id, label: p.name })),
-                ]}
-                value={formData.product_id}
-                onChange={(e) =>
-                  setFormData({ ...formData, product_id: e.target.value, cost_id: '' })
-                }
-              />
-              <Select
-                id="cost_id"
-                label="עלות נוספת (אופציונלי)"
-                options={[
-                  { value: '', label: '-- ללא --' },
-                  ...costs.map((c) => ({ value: c.id, label: c.description })),
-                ]}
-                value={formData.cost_id}
-                onChange={(e) =>
-                  setFormData({ ...formData, cost_id: e.target.value, product_id: '' })
-                }
-              />
+            <label className="block text-sm font-medium text-gray-700 mb-2">סטטוס</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="status"
+                  checked={formData.status === 'approved'}
+                  onChange={() => setFormData({ ...formData, status: 'approved' })}
+                  className="text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm">מאושר</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="status"
+                  checked={formData.status === 'pending'}
+                  onChange={() => setFormData({ ...formData, status: 'pending' })}
+                  className="text-amber-600 focus:ring-amber-500"
+                />
+                <span className="text-sm">ממתין</span>
+              </label>
             </div>
           </div>
+
+          {/* Link to Products */}
+          {products.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                מוצרים מקושרים
+              </label>
+              <div className="border rounded-lg p-3 max-h-32 overflow-y-auto space-y-2">
+                {products.map((product) => (
+                  <label
+                    key={product.productId}
+                    className="flex items-center gap-2 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formData.linkedProductIds.includes(product.productId)}
+                      onChange={() => toggleProduct(product.productId)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">{product.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Link to Costs */}
+          {costs.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                עלויות מקושרות
+              </label>
+              <div className="border rounded-lg p-3 max-h-32 overflow-y-auto space-y-2">
+                {costs.map((cost) => (
+                  <label key={cost.costId} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.linkedCostIds.includes(cost.costId)}
+                      onChange={() => toggleCost(cost.costId)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">{cost.description}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4">
             <Button variant="secondary" onClick={() => setShowModal(false)}>
               ביטול
             </Button>
-            <Button onClick={handleSubmit} disabled={!formData.payee || !formData.amount}>
+            <Button onClick={handleSubmit} disabled={!formData.amount}>
               {editingPayment ? 'עדכן' : 'הוסף'}
             </Button>
           </div>

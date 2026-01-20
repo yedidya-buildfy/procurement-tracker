@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Order } from '@/lib/sheets';
+import { useState } from 'react';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 import { formatCurrency } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Spinner from '@/components/ui/Spinner';
 import OrderCard from '@/components/orders/OrderCard';
 import NewOrderModal from '@/components/orders/NewOrderModal';
+import ConfirmModal from '@/components/ui/ConfirmModal';
 import { useToast } from '@/components/ui/Toast';
 import Image from 'next/image';
 import {
@@ -18,47 +20,32 @@ import {
 } from '@heroicons/react/24/outline';
 
 export default function HomePage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  const orders = useQuery(api.orders.getAllOrders);
+  const createOrderMutation = useMutation(api.orders.createOrder);
+  const deleteOrderMutation = useMutation(api.orders.deleteOrder);
   const [search, setSearch] = useState('');
   const [showNewOrderModal, setShowNewOrderModal] = useState(false);
+  const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { showToast } = useToast();
-
-  useEffect(() => {
-    loadOrders();
-  }, []);
-
-  const loadOrders = async () => {
-    try {
-      const response = await fetch('/api/orders');
-      if (!response.ok) throw new Error('Failed to fetch orders');
-      const data = await response.json();
-      setOrders(data);
-    } catch (error) {
-      console.error('Error loading orders:', error);
-      showToast('שגיאה בטעינת הזמנות', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleCreateOrder = async (data: {
     order_name: string;
     usd_rate: number;
     cny_rate: number;
+    estimated_arrival: string;
     notes: string;
   }) => {
     try {
-      const response = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+      await createOrderMutation({
+        orderName: data.order_name,
+        usdRate: data.usd_rate,
+        cnyRate: data.cny_rate,
+        notes: data.notes || undefined,
+        estimatedArrival: data.estimated_arrival || undefined,
       });
 
-      if (!response.ok) throw new Error('Failed to create order');
-
       showToast('הזמנה נוצרה בהצלחה', 'success');
-      loadOrders();
     } catch (error) {
       console.error('Error creating order:', error);
       showToast('שגיאה ביצירת הזמנה', 'error');
@@ -66,21 +53,43 @@ export default function HomePage() {
     }
   };
 
+  const handleDeleteOrder = (orderId: string) => {
+    setDeleteOrderId(orderId);
+  };
+
+  const confirmDeleteOrder = async () => {
+    if (!deleteOrderId) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteOrderMutation({ orderId: deleteOrderId });
+      showToast('הזמנה נמחקה בהצלחה', 'success');
+      setDeleteOrderId(null);
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      showToast('שגיאה במחיקת הזמנה', 'error');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const orderToDelete = orders?.find((o) => o.orderId === deleteOrderId);
+
   // Filter orders
-  const filteredOrders = orders.filter((order) => {
+  const filteredOrders = (orders || []).filter((order) => {
     return (
       !search ||
-      order.order_name.toLowerCase().includes(search.toLowerCase()) ||
-      order.order_id.toLowerCase().includes(search.toLowerCase())
+      order.orderName.toLowerCase().includes(search.toLowerCase()) ||
+      order.orderId.toLowerCase().includes(search.toLowerCase())
     );
   });
 
   // Calculate totals
-  const totalOrders = orders.length;
-  const totalProducts = orders.reduce((sum, o) => sum + (o.productCount || 0), 0);
-  const totalValue = orders.reduce((sum, o) => sum + (o.totalOrderILS || 0), 0);
+  const totalOrders = (orders || []).length;
+  const totalProducts = (orders || []).reduce((sum, o) => sum + (o.productCount || 0), 0);
+  const totalValue = (orders || []).reduce((sum, o) => sum + (o.totalOrderILS || 0), 0);
 
-  if (loading) {
+  if (orders === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Spinner size="lg" />
@@ -168,9 +177,9 @@ export default function HomePage() {
           <Card className="text-center py-12">
             <CubeIcon className="w-12 h-12 mx-auto text-gray-300 mb-4" />
             <p className="text-gray-500">
-              {orders.length === 0 ? 'אין הזמנות עדיין' : 'לא נמצאו הזמנות'}
+              {(orders || []).length === 0 ? 'אין הזמנות עדיין' : 'לא נמצאו הזמנות'}
             </p>
-            {orders.length === 0 && (
+            {(orders || []).length === 0 && (
               <Button
                 className="mt-4"
                 onClick={() => setShowNewOrderModal(true)}
@@ -183,7 +192,7 @@ export default function HomePage() {
         ) : (
           <div className="flex flex-col gap-3">
             {filteredOrders.map((order) => (
-              <OrderCard key={order.order_id} order={order} />
+              <OrderCard key={order.orderId} order={order} onDelete={handleDeleteOrder} />
             ))}
           </div>
         )}
@@ -193,6 +202,18 @@ export default function HomePage() {
         isOpen={showNewOrderModal}
         onClose={() => setShowNewOrderModal(false)}
         onSubmit={handleCreateOrder}
+      />
+
+      <ConfirmModal
+        isOpen={!!deleteOrderId}
+        onClose={() => setDeleteOrderId(null)}
+        onConfirm={confirmDeleteOrder}
+        title="מחיקת הזמנה"
+        message={`האם אתה בטוח שברצונך למחוק את ההזמנה "${orderToDelete?.orderName || ''}"? פעולה זו תמחק את כל המוצרים, העלויות והתשלומים הקשורים להזמנה ולא ניתן לבטל אותה.`}
+        confirmText="מחק הזמנה"
+        cancelText="ביטול"
+        variant="danger"
+        isLoading={isDeleting}
       />
     </div>
   );

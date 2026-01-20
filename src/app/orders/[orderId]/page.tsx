@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Order, Product, AdditionalCost, Payment, Milestone } from '@/lib/sheets';
-import { formatCurrency, formatNumber, formatDate } from '@/lib/utils';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../../../convex/_generated/api';
+import { formatCurrency } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Spinner from '@/components/ui/Spinner';
@@ -22,25 +23,6 @@ import {
   CurrencyDollarIcon,
 } from '@heroicons/react/24/outline';
 
-interface OrderData {
-  order: Order;
-  products: Product[];
-  costs: AdditionalCost[];
-  payments: Payment[];
-  orderMilestones: Milestone[];
-  productMilestones: Milestone[];
-  summary: {
-    productCount: number;
-    totalProductsILS: number;
-    totalCostsILS: number;
-    totalOrderILS: number;
-    totalPaidILS: number;
-    balanceILS: number;
-    totalCBM: number;
-    totalKG: number;
-  };
-}
-
 type TabId = 'summary' | 'products' | 'costs' | 'payments';
 
 export default function OrderPage({ params }: { params: Promise<{ orderId: string }> }) {
@@ -48,48 +30,38 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
   const router = useRouter();
   const { showToast } = useToast();
 
-  const [data, setData] = useState<OrderData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const data = useQuery(api.orders.getOrderFull, { orderId });
+  const updateOrderMutation = useMutation(api.orders.updateOrder);
+  const deleteOrderMutation = useMutation(api.orders.deleteOrder);
+
   const [activeTab, setActiveTab] = useState<TabId>('summary');
   const [isEditing, setIsEditing] = useState(false);
-  const [editedOrder, setEditedOrder] = useState<Partial<Order>>({});
+  const [editedOrder, setEditedOrder] = useState<{
+    orderName?: string;
+    status?: string;
+    notes?: string;
+  }>({});
 
-  useEffect(() => {
-    loadOrder();
-  }, [orderId]);
-
-  const loadOrder = async () => {
-    try {
-      const response = await fetch(`/api/orders/${orderId}`);
-      if (!response.ok) throw new Error('Failed to fetch order');
-      const orderData = await response.json();
-      setData(orderData);
-      setEditedOrder({
-        order_name: orderData.order.order_name,
-        status: orderData.order.status,
-        notes: orderData.order.notes,
-      });
-    } catch (error) {
-      console.error('Error loading order:', error);
-      showToast('שגיאה בטעינת הזמנה', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Initialize editedOrder when data loads
+  if (data && Object.keys(editedOrder).length === 0) {
+    setEditedOrder({
+      orderName: data.order.orderName,
+      status: data.order.status,
+      notes: data.order.notes || '',
+    });
+  }
 
   const handleUpdateOrder = async () => {
     try {
-      const response = await fetch(`/api/orders/${orderId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editedOrder),
+      await updateOrderMutation({
+        orderId,
+        orderName: editedOrder.orderName,
+        status: editedOrder.status,
+        notes: editedOrder.notes,
       });
-
-      if (!response.ok) throw new Error('Failed to update order');
 
       showToast('הזמנה עודכנה בהצלחה', 'success');
       setIsEditing(false);
-      loadOrder();
     } catch (error) {
       console.error('Error updating order:', error);
       showToast('שגיאה בעדכון הזמנה', 'error');
@@ -100,12 +72,7 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
     if (!confirm('האם אתה בטוח שברצונך למחוק את ההזמנה?')) return;
 
     try {
-      const response = await fetch(`/api/orders/${orderId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) throw new Error('Failed to delete order');
-
+      await deleteOrderMutation({ orderId });
       showToast('הזמנה נמחקה בהצלחה', 'success');
       router.push('/');
     } catch (error) {
@@ -114,7 +81,7 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
     }
   };
 
-  if (loading) {
+  if (data === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Spinner size="lg" />
@@ -122,7 +89,7 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
     );
   }
 
-  if (!data) {
+  if (data === null) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-gray-500">הזמנה לא נמצאה</p>
@@ -156,18 +123,18 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
               {isEditing ? (
                 <input
                   type="text"
-                  value={editedOrder.order_name || ''}
+                  value={editedOrder.orderName || ''}
                   onChange={(e) =>
-                    setEditedOrder({ ...editedOrder, order_name: e.target.value })
+                    setEditedOrder({ ...editedOrder, orderName: e.target.value })
                   }
                   className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 focus:outline-none"
                 />
               ) : (
                 <h1 className="text-2xl font-bold text-gray-900">
-                  {order.order_name}
+                  {order.orderName}
                 </h1>
               )}
-              <p className="text-sm text-gray-500">{order.order_id}</p>
+              <p className="text-sm text-gray-500">{order.orderId}</p>
             </div>
 
             <div className="flex items-center gap-2">
@@ -274,7 +241,6 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
                 order={order}
                 summary={summary}
                 milestones={data.orderMilestones}
-                onRefresh={loadOrder}
               />
             )}
             {activeTab === 'products' && (
@@ -282,7 +248,6 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
                 orderId={orderId}
                 products={data.products}
                 productMilestones={data.productMilestones}
-                onRefresh={loadOrder}
               />
             )}
             {activeTab === 'costs' && (
@@ -290,7 +255,6 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
                 orderId={orderId}
                 costs={data.costs}
                 products={data.products}
-                onRefresh={loadOrder}
               />
             )}
             {activeTab === 'payments' && (
@@ -299,7 +263,8 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
                 payments={data.payments}
                 products={data.products}
                 costs={data.costs}
-                onRefresh={loadOrder}
+                paymentProductLinks={data.paymentProductLinks}
+                paymentCostLinks={data.paymentCostLinks}
               />
             )}
           </div>

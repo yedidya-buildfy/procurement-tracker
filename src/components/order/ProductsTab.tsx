@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { Product, Milestone } from '@/lib/sheets';
+import { useState, Fragment, useMemo } from 'react';
+import { useMutation, useQuery } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 import { formatCurrency, formatNumber, formatDate } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
@@ -17,77 +18,165 @@ import {
   ClockIcon,
 } from '@heroicons/react/24/outline';
 
+interface Product {
+  productId: string;
+  orderId: string;
+  name: string;
+  supplier?: string;
+  quantity: number;
+  pricePerUnit: number;
+  priceTotal: number;
+  currency: string;
+  cbmPerUnit: number;
+  cbmTotal: number;
+  kgPerUnit: number;
+  kgTotal: number;
+  orderDate?: string;
+  notes?: string;
+  priceILS?: number;
+  additionalCostsILS?: number;
+  finalCostILS?: number;
+  finalCostPerUnitILS?: number;
+}
+
+interface Milestone {
+  milestoneId: string;
+  productId: string;
+  milestoneTypeId: string;
+  targetDate?: string;
+  actualDate?: string;
+  status?: string;
+  notes?: string;
+}
+
 interface ProductsTabProps {
   orderId: string;
   products: Product[];
   productMilestones: Milestone[];
-  onRefresh: () => void;
 }
 
 const CURRENCIES = [
-  { value: 'USD', label: 'USD ($)' },
-  { value: 'CNY', label: 'CNY (¥)' },
-  { value: 'ILS', label: 'ILS (₪)' },
+  { value: 'USD', label: 'USD ($)', symbol: '$' },
+  { value: 'EUR', label: 'EUR (€)', symbol: '€' },
+  { value: 'GBP', label: 'GBP (£)', symbol: '£' },
+  { value: 'JPY', label: 'JPY (¥)', symbol: '¥' },
+  { value: 'CNY', label: 'CNY (¥)', symbol: '¥' },
+  { value: 'ILS', label: 'ILS (₪)', symbol: '₪' },
+  { value: 'AUD', label: 'AUD (A$)', symbol: 'A$' },
+  { value: 'CAD', label: 'CAD (C$)', symbol: 'C$' },
+  { value: 'CHF', label: 'CHF (Fr)', symbol: 'Fr' },
+  { value: 'HKD', label: 'HKD (HK$)', symbol: 'HK$' },
+  { value: 'SGD', label: 'SGD (S$)', symbol: 'S$' },
+  { value: 'SEK', label: 'SEK (kr)', symbol: 'kr' },
+  { value: 'KRW', label: 'KRW (₩)', symbol: '₩' },
+  { value: 'NOK', label: 'NOK (kr)', symbol: 'kr' },
+  { value: 'NZD', label: 'NZD (NZ$)', symbol: 'NZ$' },
+  { value: 'INR', label: 'INR (₹)', symbol: '₹' },
+  { value: 'MXN', label: 'MXN ($)', symbol: '$' },
+  { value: 'TWD', label: 'TWD (NT$)', symbol: 'NT$' },
+  { value: 'ZAR', label: 'ZAR (R)', symbol: 'R' },
+  { value: 'BRL', label: 'BRL (R$)', symbol: 'R$' },
+  { value: 'DKK', label: 'DKK (kr)', symbol: 'kr' },
+  { value: 'PLN', label: 'PLN (zł)', symbol: 'zł' },
+  { value: 'THB', label: 'THB (฿)', symbol: '฿' },
+  { value: 'IDR', label: 'IDR (Rp)', symbol: 'Rp' },
+  { value: 'HUF', label: 'HUF (Ft)', symbol: 'Ft' },
+  { value: 'CZK', label: 'CZK (Kč)', symbol: 'Kč' },
+  { value: 'AED', label: 'AED (د.إ)', symbol: 'د.إ' },
+  { value: 'TRY', label: 'TRY (₺)', symbol: '₺' },
+  { value: 'SAR', label: 'SAR (﷼)', symbol: '﷼' },
+  { value: 'PHP', label: 'PHP (₱)', symbol: '₱' },
+  { value: 'MYR', label: 'MYR (RM)', symbol: 'RM' },
+  { value: 'RUB', label: 'RUB (₽)', symbol: '₽' },
 ];
-
-type Currency = 'USD' | 'CNY' | 'ILS';
 
 interface ProductFormData {
   name: string;
   supplier: string;
   quantity: number;
-  price_per_unit: number;
-  price_total: number;
-  currency: Currency;
-  cbm_per_unit: number;
-  cbm_total: number;
-  kg_per_unit: number;
-  kg_total: number;
-  order_date: string;
+  pricePerUnit: number;
+  priceTotal: number;
+  currency: string;
+  cbmPerUnit: number;
+  cbmTotal: number;
+  kgPerUnit: number;
+  kgTotal: number;
+  orderDate: string;
   notes: string;
 }
 
-const emptyProduct: ProductFormData = {
+const getEmptyProduct = (): ProductFormData => ({
   name: '',
   supplier: '',
   quantity: 0,
-  price_per_unit: 0,
-  price_total: 0,
+  pricePerUnit: 0,
+  priceTotal: 0,
   currency: 'USD',
-  cbm_per_unit: 0,
-  cbm_total: 0,
-  kg_per_unit: 0,
-  kg_total: 0,
-  order_date: '',
+  cbmPerUnit: 0,
+  cbmTotal: 0,
+  kgPerUnit: 0,
+  kgTotal: 0,
+  orderDate: new Date().toISOString().split('T')[0],
   notes: '',
-};
+});
 
 export default function ProductsTab({
   orderId,
   products,
   productMilestones,
-  onRefresh,
 }: ProductsTabProps) {
   const { showToast } = useToast();
+  const addProductMutation = useMutation(api.products.addProduct);
+  const updateProductMutation = useMutation(api.products.updateProduct);
+  const deleteProductMutation = useMutation(api.products.deleteProduct);
+  const addProductMilestoneMutation = useMutation(api.milestones.addProductMilestone);
+  const updateProductMilestoneMutation = useMutation(api.milestones.updateProductMilestone);
+  const deleteProductMilestoneMutation = useMutation(api.milestones.deleteProductMilestone);
+
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [formData, setFormData] = useState(emptyProduct);
+  const [formData, setFormData] = useState(getEmptyProduct);
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [milestoneProductId, setMilestoneProductId] = useState<string | null>(null);
   const [newMilestone, setNewMilestone] = useState({
     description: '',
-    target_date: '',
+    targetDate: '',
     notes: '',
   });
+  const [showSupplierSuggestions, setShowSupplierSuggestions] = useState(false);
+  const [showCurrencySuggestions, setShowCurrencySuggestions] = useState(false);
+  const [currencySearch, setCurrencySearch] = useState('');
+
+  // Get all unique suppliers from all products across all orders
+  const allSuppliers = useQuery(api.products.getAllSuppliers) ?? [];
+
+  // Filter suppliers based on current input (max 3)
+  const filteredSuppliers = useMemo(() => {
+    if (!formData.supplier.trim()) return allSuppliers.slice(0, 3);
+    return allSuppliers
+      .filter((s) => s.toLowerCase().includes(formData.supplier.toLowerCase()))
+      .slice(0, 3);
+  }, [formData.supplier, allSuppliers]);
+
+  // Filter currencies based on search input
+  const filteredCurrencies = useMemo(() => {
+    if (!currencySearch.trim()) return CURRENCIES;
+    return CURRENCIES.filter(
+      (c) =>
+        c.value.toLowerCase().includes(currencySearch.toLowerCase()) ||
+        c.label.toLowerCase().includes(currencySearch.toLowerCase())
+    );
+  }, [currencySearch]);
 
   const getMilestonesForProduct = (productId: string) => {
-    return productMilestones.filter((m) => m.product_id === productId);
+    return productMilestones.filter((m) => m.productId === productId);
   };
 
   const openAddModal = () => {
     setEditingProduct(null);
-    setFormData(emptyProduct);
+    setFormData(getEmptyProduct());
+    setCurrencySearch('');
     setShowModal(true);
   };
 
@@ -95,18 +184,19 @@ export default function ProductsTab({
     setEditingProduct(product);
     setFormData({
       name: product.name,
-      supplier: product.supplier,
+      supplier: product.supplier || '',
       quantity: product.quantity,
-      price_per_unit: product.price_per_unit,
-      price_total: product.price_total,
+      pricePerUnit: product.pricePerUnit,
+      priceTotal: product.priceTotal,
       currency: product.currency,
-      cbm_per_unit: product.cbm_per_unit,
-      cbm_total: product.cbm_total,
-      kg_per_unit: product.kg_per_unit,
-      kg_total: product.kg_total,
-      order_date: product.order_date,
-      notes: product.notes,
+      cbmPerUnit: product.cbmPerUnit,
+      cbmTotal: product.cbmTotal,
+      kgPerUnit: product.kgPerUnit,
+      kgTotal: product.kgTotal,
+      orderDate: product.orderDate || new Date().toISOString().split('T')[0],
+      notes: product.notes || '',
     });
+    setCurrencySearch('');
     setShowModal(true);
   };
 
@@ -114,42 +204,99 @@ export default function ProductsTab({
     setFormData({
       ...formData,
       quantity: qty,
-      price_total: qty * formData.price_per_unit,
-      cbm_total: qty * formData.cbm_per_unit,
-      kg_total: qty * formData.kg_per_unit,
+      priceTotal: qty * formData.pricePerUnit,
+      cbmTotal: qty * formData.cbmPerUnit,
+      kgTotal: qty * formData.kgPerUnit,
     });
   };
 
   const handlePricePerUnitChange = (price: number) => {
     setFormData({
       ...formData,
-      price_per_unit: price,
-      price_total: formData.quantity * price,
+      pricePerUnit: price,
+      priceTotal: formData.quantity * price,
+    });
+  };
+
+  const handlePriceTotalChange = (total: number) => {
+    setFormData({
+      ...formData,
+      priceTotal: total,
+      pricePerUnit: formData.quantity > 0 ? total / formData.quantity : 0,
+    });
+  };
+
+  const handleCbmPerUnitChange = (cbm: number) => {
+    setFormData({
+      ...formData,
+      cbmPerUnit: cbm,
+      cbmTotal: formData.quantity * cbm,
+    });
+  };
+
+  const handleCbmTotalChange = (total: number) => {
+    setFormData({
+      ...formData,
+      cbmTotal: total,
+      cbmPerUnit: formData.quantity > 0 ? total / formData.quantity : 0,
+    });
+  };
+
+  const handleKgPerUnitChange = (kg: number) => {
+    setFormData({
+      ...formData,
+      kgPerUnit: kg,
+      kgTotal: formData.quantity * kg,
+    });
+  };
+
+  const handleKgTotalChange = (total: number) => {
+    setFormData({
+      ...formData,
+      kgTotal: total,
+      kgPerUnit: formData.quantity > 0 ? total / formData.quantity : 0,
     });
   };
 
   const handleSubmit = async () => {
     try {
       if (editingProduct) {
-        const response = await fetch(`/api/products/${editingProduct.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData),
+        await updateProductMutation({
+          productId: editingProduct.productId,
+          name: formData.name,
+          supplier: formData.supplier || undefined,
+          quantity: formData.quantity,
+          pricePerUnit: formData.pricePerUnit,
+          priceTotal: formData.priceTotal,
+          currency: formData.currency,
+          cbmPerUnit: formData.cbmPerUnit,
+          cbmTotal: formData.cbmTotal,
+          kgPerUnit: formData.kgPerUnit,
+          kgTotal: formData.kgTotal,
+          orderDate: formData.orderDate || undefined,
+          notes: formData.notes || undefined,
         });
-        if (!response.ok) throw new Error('Failed to update product');
         showToast('מוצר עודכן בהצלחה', 'success');
       } else {
-        const response = await fetch(`/api/orders/${orderId}/products`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData),
+        await addProductMutation({
+          orderId,
+          name: formData.name,
+          supplier: formData.supplier || undefined,
+          quantity: formData.quantity,
+          pricePerUnit: formData.pricePerUnit,
+          priceTotal: formData.priceTotal,
+          currency: formData.currency,
+          cbmPerUnit: formData.cbmPerUnit,
+          cbmTotal: formData.cbmTotal,
+          kgPerUnit: formData.kgPerUnit,
+          kgTotal: formData.kgTotal,
+          orderDate: formData.orderDate || undefined,
+          notes: formData.notes || undefined,
         });
-        if (!response.ok) throw new Error('Failed to add product');
         showToast('מוצר נוסף בהצלחה', 'success');
       }
 
       setShowModal(false);
-      onRefresh();
     } catch (error) {
       console.error('Error saving product:', error);
       showToast('שגיאה בשמירת מוצר', 'error');
@@ -160,12 +307,8 @@ export default function ProductsTab({
     if (!confirm('האם למחוק את המוצר?')) return;
 
     try {
-      const response = await fetch(`/api/products/${productId}`, {
-        method: 'DELETE',
-      });
-      if (!response.ok) throw new Error('Failed to delete product');
+      await deleteProductMutation({ productId });
       showToast('מוצר נמחק', 'success');
-      onRefresh();
     } catch (error) {
       console.error('Error deleting product:', error);
       showToast('שגיאה במחיקת מוצר', 'error');
@@ -174,7 +317,7 @@ export default function ProductsTab({
 
   const openMilestoneModal = (productId: string) => {
     setMilestoneProductId(productId);
-    setNewMilestone({ description: '', target_date: '', notes: '' });
+    setNewMilestone({ description: '', targetDate: '', notes: '' });
     setShowMilestoneModal(true);
   };
 
@@ -182,22 +325,16 @@ export default function ProductsTab({
     if (!milestoneProductId) return;
 
     try {
-      const product = products.find((p) => p.id === milestoneProductId);
-      const response = await fetch('/api/milestones', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          order_id: orderId,
-          product_id: milestoneProductId,
-          ...newMilestone,
-        }),
+      await addProductMilestoneMutation({
+        productId: milestoneProductId,
+        milestoneTypeId: 'custom',
+        targetDate: newMilestone.targetDate || undefined,
+        status: newMilestone.description,
+        notes: newMilestone.notes || undefined,
       });
-
-      if (!response.ok) throw new Error('Failed to add milestone');
 
       showToast('מיילסטון נוסף בהצלחה', 'success');
       setShowMilestoneModal(false);
-      onRefresh();
     } catch (error) {
       console.error('Error adding milestone:', error);
       showToast('שגיאה בהוספת מיילסטון', 'error');
@@ -206,16 +343,12 @@ export default function ProductsTab({
 
   const handleUpdateMilestone = async (milestoneId: string, actualDate: string) => {
     try {
-      const response = await fetch(`/api/milestones/${milestoneId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ actual_date: actualDate }),
+      await updateProductMilestoneMutation({
+        milestoneId,
+        actualDate,
       });
 
-      if (!response.ok) throw new Error('Failed to update milestone');
-
       showToast('מיילסטון עודכן', 'success');
-      onRefresh();
     } catch (error) {
       console.error('Error updating milestone:', error);
       showToast('שגיאה בעדכון מיילסטון', 'error');
@@ -226,14 +359,8 @@ export default function ProductsTab({
     if (!confirm('האם למחוק את המיילסטון?')) return;
 
     try {
-      const response = await fetch(`/api/milestones/${milestoneId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) throw new Error('Failed to delete milestone');
-
+      await deleteProductMilestoneMutation({ milestoneId });
       showToast('מיילסטון נמחק', 'success');
-      onRefresh();
     } catch (error) {
       console.error('Error deleting milestone:', error);
       showToast('שגיאה במחיקת מיילסטון', 'error');
@@ -268,15 +395,14 @@ export default function ProductsTab({
             </thead>
             <tbody>
               {products.map((product) => {
-                const milestones = getMilestonesForProduct(product.id);
-                const isExpanded = expandedProductId === product.id;
+                const milestones = getMilestonesForProduct(product.productId);
+                const isExpanded = expandedProductId === product.productId;
 
                 return (
-                  <>
+                  <Fragment key={product.productId}>
                     <tr
-                      key={product.id}
                       className={`border-b hover:bg-gray-50 cursor-pointer ${isExpanded ? 'bg-blue-50' : ''}`}
-                      onClick={() => setExpandedProductId(isExpanded ? null : product.id)}
+                      onClick={() => setExpandedProductId(isExpanded ? null : product.productId)}
                     >
                       <td className="py-3 px-4">
                         <button
@@ -291,8 +417,8 @@ export default function ProductsTab({
                       </td>
                       <td className="py-3 px-4 font-medium">{product.name}</td>
                       <td className="py-3 px-4">{product.quantity}</td>
-                      <td className="py-3 px-4">{formatNumber(product.price_per_unit)} {product.currency}</td>
-                      <td className="py-3 px-4">{formatNumber(product.price_total)} {product.currency}</td>
+                      <td className="py-3 px-4">{formatNumber(product.pricePerUnit)} {product.currency}</td>
+                      <td className="py-3 px-4">{formatNumber(product.priceTotal)} {product.currency}</td>
                       <td className="py-3 px-4 font-semibold text-blue-600">
                         {formatCurrency(product.finalCostILS || 0)}
                       </td>
@@ -305,7 +431,7 @@ export default function ProductsTab({
                             <PencilIcon className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDelete(product.id)}
+                            onClick={() => handleDelete(product.productId)}
                             className="p-1.5 text-red-500 hover:bg-red-50 rounded"
                           >
                             <TrashIcon className="w-4 h-4" />
@@ -314,7 +440,7 @@ export default function ProductsTab({
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr key={`${product.id}-details`}>
+                      <tr key={`${product.productId}-details`}>
                         <td colSpan={7} className="bg-gray-50 px-6 py-4">
                           {/* Product Details Section */}
                           <div className="grid grid-cols-2 gap-6 mb-6">
@@ -328,23 +454,23 @@ export default function ProductsTab({
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="text-gray-500">תאריך הזמנה:</span>
-                                  <span className="font-medium">{product.order_date ? formatDate(product.order_date) : '-'}</span>
+                                  <span className="font-medium">{product.orderDate ? formatDate(product.orderDate) : '-'}</span>
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="text-gray-500">CBM ליחידה:</span>
-                                  <span className="font-medium">{formatNumber(product.cbm_per_unit, 3)}</span>
+                                  <span className="font-medium">{formatNumber(product.cbmPerUnit, 3)}</span>
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="text-gray-500">CBM סה"כ:</span>
-                                  <span className="font-medium">{formatNumber(product.cbm_total, 3)}</span>
+                                  <span className="font-medium">{formatNumber(product.cbmTotal, 3)}</span>
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="text-gray-500">KG ליחידה:</span>
-                                  <span className="font-medium">{formatNumber(product.kg_per_unit, 1)}</span>
+                                  <span className="font-medium">{formatNumber(product.kgPerUnit, 1)}</span>
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="text-gray-500">KG סה"כ:</span>
-                                  <span className="font-medium">{formatNumber(product.kg_total, 1)}</span>
+                                  <span className="font-medium">{formatNumber(product.kgTotal, 1)}</span>
                                 </div>
                                 {product.notes && (
                                   <div className="flex justify-between border-t pt-2">
@@ -387,7 +513,7 @@ export default function ProductsTab({
                                 size="sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  openMilestoneModal(product.id);
+                                  openMilestoneModal(product.productId);
                                 }}
                               >
                                 <PlusIcon className="w-3 h-3" />
@@ -408,21 +534,17 @@ export default function ProductsTab({
                                 {/* Progress line */}
                                 {(() => {
                                   const sorted = [...milestones].sort((a, b) => {
-                                    const dateA = a.target_date || a.actual_date || '';
-                                    const dateB = b.target_date || b.actual_date || '';
+                                    const dateA = a.targetDate || a.actualDate || '';
+                                    const dateB = b.targetDate || b.actualDate || '';
                                     return dateA.localeCompare(dateB);
                                   });
                                   const today = new Date().toISOString().split('T')[0];
                                   let lastCompletedIndex = -1;
                                   let lastOverdueIndex = -1;
                                   sorted.forEach((m, i) => {
-                                    if (m.actual_date) lastCompletedIndex = i;
-                                    else if (m.target_date && m.target_date < today) lastOverdueIndex = i;
+                                    if (m.actualDate) lastCompletedIndex = i;
+                                    else if (m.targetDate && m.targetDate < today) lastOverdueIndex = i;
                                   });
-                                  const progressPercent = sorted.length > 1
-                                    ? ((Math.max(lastCompletedIndex, lastOverdueIndex) + 1) / sorted.length) * 100
-                                    : 0;
-                                  const hasOverdue = lastOverdueIndex > lastCompletedIndex;
 
                                   return (
                                     <>
@@ -432,7 +554,7 @@ export default function ProductsTab({
                                           style={{ width: `${((lastCompletedIndex + 0.5) / sorted.length) * 100}%` }}
                                         />
                                       )}
-                                      {hasOverdue && (
+                                      {lastOverdueIndex > lastCompletedIndex && (
                                         <div
                                           className="absolute top-5 h-1 bg-red-500 transition-all"
                                           style={{
@@ -449,14 +571,14 @@ export default function ProductsTab({
                                 <div className="relative flex justify-between">
                                   {milestones
                                     .sort((a, b) => {
-                                      const dateA = a.target_date || a.actual_date || '';
-                                      const dateB = b.target_date || b.actual_date || '';
+                                      const dateA = a.targetDate || a.actualDate || '';
+                                      const dateB = b.targetDate || b.actualDate || '';
                                       return dateA.localeCompare(dateB);
                                     })
                                     .map((milestone, index, arr) => {
-                                      const isCompleted = !!milestone.actual_date;
+                                      const isCompleted = !!milestone.actualDate;
                                       const today = new Date().toISOString().split('T')[0];
-                                      const isOverdue = !isCompleted && milestone.target_date && milestone.target_date < today;
+                                      const isOverdue = !isCompleted && milestone.targetDate && milestone.targetDate < today;
 
                                       const getCircleClasses = () => {
                                         if (isCompleted) return 'bg-green-500 border-green-500 text-white';
@@ -466,7 +588,7 @@ export default function ProductsTab({
 
                                       return (
                                         <div
-                                          key={milestone.id}
+                                          key={milestone.milestoneId}
                                           className="flex flex-col items-center group relative"
                                           style={{ width: `${100 / arr.length}%` }}
                                         >
@@ -490,13 +612,13 @@ export default function ProductsTab({
                                                 isCompleted ? 'text-green-700' : isOverdue ? 'text-red-600' : 'text-gray-600'
                                               }`}
                                             >
-                                              {milestone.description}
+                                              {milestone.status}
                                             </p>
                                             <p className={`text-xs mt-0.5 ${isOverdue ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
-                                              {milestone.actual_date
-                                                ? formatDate(milestone.actual_date)
-                                                : milestone.target_date
-                                                ? formatDate(milestone.target_date)
+                                              {milestone.actualDate
+                                                ? formatDate(milestone.actualDate)
+                                                : milestone.targetDate
+                                                ? formatDate(milestone.targetDate)
                                                 : ''}
                                             </p>
                                             {isOverdue && (
@@ -510,7 +632,7 @@ export default function ProductsTab({
                                               <button
                                                 onClick={() =>
                                                   handleUpdateMilestone(
-                                                    milestone.id,
+                                                    milestone.milestoneId,
                                                     new Date().toISOString().split('T')[0]
                                                   )
                                                 }
@@ -521,7 +643,7 @@ export default function ProductsTab({
                                               </button>
                                             )}
                                             <button
-                                              onClick={() => handleDeleteMilestone(milestone.id)}
+                                              onClick={() => handleDeleteMilestone(milestone.milestoneId)}
                                               className="p-1.5 text-red-500 hover:bg-red-50 rounded"
                                               title="מחק"
                                             >
@@ -539,7 +661,7 @@ export default function ProductsTab({
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -555,6 +677,7 @@ export default function ProductsTab({
         size="xl"
       >
         <div className="space-y-4">
+          {/* Row 1: Basic Info - Name, Supplier */}
           <div className="grid grid-cols-2 gap-4">
             <Input
               id="name"
@@ -563,111 +686,158 @@ export default function ProductsTab({
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
             />
-            <Input
-              id="supplier"
-              label="ספק"
-              value={formData.supplier}
-              onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
-            />
+            <div className="relative">
+              <Input
+                id="supplier"
+                label="ספק"
+                value={formData.supplier}
+                onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
+                onFocus={() => setShowSupplierSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSupplierSuggestions(false), 150)}
+                autoComplete="off"
+              />
+              {showSupplierSuggestions && filteredSuppliers.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
+                  {filteredSuppliers.map((supplier) => (
+                    <button
+                      key={supplier}
+                      type="button"
+                      className="w-full px-3 py-2 text-right text-sm hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setFormData({ ...formData, supplier });
+                        setShowSupplierSuggestions(false);
+                      }}
+                    >
+                      {supplier}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-4">
-            <Input
-              id="quantity"
-              label="כמות"
-              type="number"
-              value={formData.quantity}
-              onChange={(e) => handleQuantityChange(parseFloat(e.target.value) || 0)}
-            />
-            <Input
-              id="price_per_unit"
-              label="מחיר ליחידה"
-              type="number"
-              step="0.01"
-              value={formData.price_per_unit}
-              onChange={(e) => handlePricePerUnitChange(parseFloat(e.target.value) || 0)}
-            />
-            <Select
-              id="currency"
-              label="מטבע"
-              options={CURRENCIES}
-              value={formData.currency}
-              onChange={(e) =>
-                setFormData({ ...formData, currency: e.target.value as 'USD' | 'CNY' | 'ILS' })
-              }
-            />
-            <Input
-              id="price_total"
-              label="סה״כ מחיר"
-              type="number"
-              step="0.01"
-              value={formData.price_total}
-              onChange={(e) =>
-                setFormData({ ...formData, price_total: parseFloat(e.target.value) || 0 })
-              }
-            />
+          {/* Separator */}
+          <hr className="border-gray-200" />
+
+          {/* Quantity - prominent single field */}
+          <Input
+            id="quantity"
+            label="כמות"
+            type="number"
+            value={formData.quantity}
+            onChange={(e) => handleQuantityChange(parseFloat(e.target.value) || 0)}
+          />
+
+          {/* Price Row */}
+          <div className="flex gap-4">
+            {/* Currency - smaller, on the left */}
+            <div className="relative w-24 flex-shrink-0">
+              <label className="block text-sm font-medium text-gray-700 mb-1">מטבע</label>
+              <input
+                type="text"
+                value={currencySearch || formData.currency}
+                onChange={(e) => setCurrencySearch(e.target.value)}
+                onFocus={() => {
+                  setShowCurrencySuggestions(true);
+                  setCurrencySearch('');
+                }}
+                onBlur={() => setTimeout(() => setShowCurrencySuggestions(false), 150)}
+                className="w-full px-2 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                autoComplete="off"
+              />
+              {showCurrencySuggestions && (
+                <div className="absolute z-20 w-32 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {filteredCurrencies.map((currency) => (
+                    <button
+                      key={currency.value}
+                      type="button"
+                      className="w-full px-3 py-2 text-right text-sm hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setFormData({ ...formData, currency: currency.value });
+                        setCurrencySearch('');
+                        setShowCurrencySuggestions(false);
+                      }}
+                    >
+                      {currency.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* Price per unit */}
+            <div className="flex-1">
+              <Input
+                id="pricePerUnit"
+                label="מחיר ליחידה"
+                type="number"
+                step="0.01"
+                value={formData.pricePerUnit}
+                onChange={(e) => handlePricePerUnitChange(parseFloat(e.target.value) || 0)}
+              />
+            </div>
+            {/* Price total */}
+            <div className="flex-1">
+              <Input
+                id="priceTotal"
+                label="סה״כ מחיר"
+                type="number"
+                step="0.01"
+                value={formData.priceTotal}
+                onChange={(e) => handlePriceTotalChange(parseFloat(e.target.value) || 0)}
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-4">
+          {/* CBM Row */}
+          <div className="grid grid-cols-2 gap-4">
             <Input
-              id="cbm_per_unit"
+              id="cbmPerUnit"
               label="CBM ליחידה"
               type="number"
               step="0.001"
-              value={formData.cbm_per_unit}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 0;
-                setFormData({
-                  ...formData,
-                  cbm_per_unit: val,
-                  cbm_total: formData.quantity * val,
-                });
-              }}
+              value={formData.cbmPerUnit}
+              onChange={(e) => handleCbmPerUnitChange(parseFloat(e.target.value) || 0)}
             />
             <Input
-              id="cbm_total"
+              id="cbmTotal"
               label="CBM סה״כ"
               type="number"
               step="0.001"
-              value={formData.cbm_total}
-              onChange={(e) =>
-                setFormData({ ...formData, cbm_total: parseFloat(e.target.value) || 0 })
-              }
-            />
-            <Input
-              id="kg_per_unit"
-              label="KG ליחידה"
-              type="number"
-              step="0.1"
-              value={formData.kg_per_unit}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 0;
-                setFormData({
-                  ...formData,
-                  kg_per_unit: val,
-                  kg_total: formData.quantity * val,
-                });
-              }}
-            />
-            <Input
-              id="kg_total"
-              label="KG סה״כ"
-              type="number"
-              step="0.1"
-              value={formData.kg_total}
-              onChange={(e) =>
-                setFormData({ ...formData, kg_total: parseFloat(e.target.value) || 0 })
-              }
+              value={formData.cbmTotal}
+              onChange={(e) => handleCbmTotalChange(parseFloat(e.target.value) || 0)}
             />
           </div>
 
+          {/* KG Row */}
           <div className="grid grid-cols-2 gap-4">
             <Input
-              id="order_date"
+              id="kgPerUnit"
+              label="KG ליחידה"
+              type="number"
+              step="0.1"
+              value={formData.kgPerUnit}
+              onChange={(e) => handleKgPerUnitChange(parseFloat(e.target.value) || 0)}
+            />
+            <Input
+              id="kgTotal"
+              label="KG סה״כ"
+              type="number"
+              step="0.1"
+              value={formData.kgTotal}
+              onChange={(e) => handleKgTotalChange(parseFloat(e.target.value) || 0)}
+            />
+          </div>
+
+          {/* Date & Notes Row */}
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              id="orderDate"
               label="תאריך הזמנה"
               type="date"
-              value={formData.order_date}
-              onChange={(e) => setFormData({ ...formData, order_date: e.target.value })}
+              value={formData.orderDate}
+              onChange={(e) => setFormData({ ...formData, orderDate: e.target.value })}
             />
             <Input
               id="notes"
@@ -710,9 +880,9 @@ export default function ProductsTab({
             id="milestone_target_date"
             label="תאריך יעד"
             type="date"
-            value={newMilestone.target_date}
+            value={newMilestone.targetDate}
             onChange={(e) =>
-              setNewMilestone({ ...newMilestone, target_date: e.target.value })
+              setNewMilestone({ ...newMilestone, targetDate: e.target.value })
             }
           />
 

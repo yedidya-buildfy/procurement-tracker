@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Heebo } from 'next/font/google';
 import './globals.css';
 import { ToastProvider } from '@/components/ui/Toast';
+import ConvexClientProvider from '@/components/ConvexClientProvider';
 
 const heebo = Heebo({
   subsets: ['hebrew', 'latin'],
@@ -21,7 +22,9 @@ export default function RootLayout({
   return (
     <html lang="he" dir="rtl">
       <body className={`${heebo.variable} font-sans antialiased bg-gray-50`}>
-        <ToastProvider>{children}</ToastProvider>
+        <ConvexClientProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </ConvexClientProvider>
       </body>
     </html>
   );

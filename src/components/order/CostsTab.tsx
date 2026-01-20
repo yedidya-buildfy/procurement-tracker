@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { AdditionalCost, Product } from '@/lib/sheets';
+import { useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 import { formatCurrency } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
@@ -10,11 +11,28 @@ import Select from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 
+interface Cost {
+  costId: string;
+  orderId: string;
+  description: string;
+  amount: number;
+  currency: 'USD' | 'CNY' | 'ILS';
+  allocationMethod: 'שווה' | 'נפח' | 'משקל' | 'עלות' | 'כמות';
+  notes?: string;
+  amountILS?: number;
+  linkedProductCount?: number;
+}
+
+interface Product {
+  productId: string;
+  name: string;
+  supplier?: string;
+}
+
 interface CostsTabProps {
   orderId: string;
-  costs: AdditionalCost[];
+  costs: Cost[];
   products: Product[];
-  onRefresh: () => void;
 }
 
 const CURRENCIES = [
@@ -38,7 +56,7 @@ interface CostFormData {
   description: string;
   amount: number;
   currency: Currency;
-  allocation_method: AllocationMethod;
+  allocationMethod: AllocationMethod;
   notes: string;
   linkedProductIds: string[];
 }
@@ -47,7 +65,7 @@ const emptyCost: CostFormData = {
   description: '',
   amount: 0,
   currency: 'USD',
-  allocation_method: 'שווה',
+  allocationMethod: 'שווה',
   notes: '',
   linkedProductIds: [],
 };
@@ -56,31 +74,35 @@ export default function CostsTab({
   orderId,
   costs,
   products,
-  onRefresh,
 }: CostsTabProps) {
   const { showToast } = useToast();
+  const addCostMutation = useMutation(api.costs.addCost);
+  const updateCostMutation = useMutation(api.costs.updateCost);
+  const deleteCostMutation = useMutation(api.costs.deleteCost);
+  const updateCostProductLinksMutation = useMutation(api.costs.updateCostProductLinks);
+
   const [showModal, setShowModal] = useState(false);
-  const [editingCost, setEditingCost] = useState<AdditionalCost | null>(null);
+  const [editingCost, setEditingCost] = useState<Cost | null>(null);
   const [formData, setFormData] = useState(emptyCost);
 
   const openAddModal = () => {
     setEditingCost(null);
     setFormData({
       ...emptyCost,
-      linkedProductIds: products.map((p) => p.id), // Default: all products
+      linkedProductIds: products.map((p) => p.productId),
     });
     setShowModal(true);
   };
 
-  const openEditModal = (cost: AdditionalCost) => {
+  const openEditModal = (cost: Cost) => {
     setEditingCost(cost);
     setFormData({
       description: cost.description,
       amount: cost.amount,
       currency: cost.currency,
-      allocation_method: cost.allocation_method,
-      notes: cost.notes,
-      linkedProductIds: products.map((p) => p.id), // TODO: Load actual links
+      allocationMethod: cost.allocationMethod,
+      notes: cost.notes || '',
+      linkedProductIds: products.map((p) => p.productId),
     });
     setShowModal(true);
   };
@@ -97,25 +119,40 @@ export default function CostsTab({
   const handleSubmit = async () => {
     try {
       if (editingCost) {
-        const response = await fetch(`/api/costs/${editingCost.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData),
+        await updateCostMutation({
+          costId: editingCost.costId,
+          description: formData.description,
+          amount: formData.amount,
+          currency: formData.currency,
+          allocationMethod: formData.allocationMethod,
+          notes: formData.notes || undefined,
         });
-        if (!response.ok) throw new Error('Failed to update cost');
+
+        await updateCostProductLinksMutation({
+          costId: editingCost.costId,
+          linkedProductIds: formData.linkedProductIds,
+        });
+
         showToast('עלות עודכנה בהצלחה', 'success');
       } else {
-        const response = await fetch(`/api/orders/${orderId}/costs`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData),
+        const costId = await addCostMutation({
+          orderId,
+          description: formData.description,
+          amount: formData.amount,
+          currency: formData.currency,
+          allocationMethod: formData.allocationMethod,
+          notes: formData.notes || undefined,
         });
-        if (!response.ok) throw new Error('Failed to add cost');
+
+        await updateCostProductLinksMutation({
+          costId,
+          linkedProductIds: formData.linkedProductIds,
+        });
+
         showToast('עלות נוספה בהצלחה', 'success');
       }
 
       setShowModal(false);
-      onRefresh();
     } catch (error) {
       console.error('Error saving cost:', error);
       showToast('שגיאה בשמירת עלות', 'error');
@@ -126,12 +163,8 @@ export default function CostsTab({
     if (!confirm('האם למחוק את העלות?')) return;
 
     try {
-      const response = await fetch(`/api/costs/${costId}`, {
-        method: 'DELETE',
-      });
-      if (!response.ok) throw new Error('Failed to delete cost');
+      await deleteCostMutation({ costId });
       showToast('עלות נמחקה', 'success');
-      onRefresh();
     } catch (error) {
       console.error('Error deleting cost:', error);
       showToast('שגיאה במחיקת עלות', 'error');
@@ -167,12 +200,12 @@ export default function CostsTab({
             </thead>
             <tbody>
               {costs.map((cost) => (
-                <tr key={cost.id} className="border-b hover:bg-gray-50">
+                <tr key={cost.costId} className="border-b hover:bg-gray-50">
                   <td className="py-3 px-4 font-medium">{cost.description}</td>
                   <td className="py-3 px-4">{cost.amount}</td>
                   <td className="py-3 px-4">{cost.currency}</td>
                   <td className="py-3 px-4">{formatCurrency(cost.amountILS || 0)}</td>
-                  <td className="py-3 px-4">{cost.allocation_method}</td>
+                  <td className="py-3 px-4">{cost.allocationMethod}</td>
                   <td className="py-3 px-4">
                     {cost.linkedProductCount || products.length}/{products.length}
                   </td>
@@ -186,7 +219,7 @@ export default function CostsTab({
                         <PencilIcon className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(cost.id)}
+                        onClick={() => handleDelete(cost.costId)}
                         className="p-1.5 text-red-500 hover:bg-red-50 rounded"
                       >
                         <TrashIcon className="w-4 h-4" />
@@ -238,14 +271,14 @@ export default function CostsTab({
               }
             />
             <Select
-              id="allocation_method"
+              id="allocationMethod"
               label="שיטת חלוקה"
               options={ALLOCATION_METHODS}
-              value={formData.allocation_method}
+              value={formData.allocationMethod}
               onChange={(e) =>
                 setFormData({
                   ...formData,
-                  allocation_method: e.target.value as typeof formData.allocation_method,
+                  allocationMethod: e.target.value as typeof formData.allocationMethod,
                 })
               }
             />
@@ -269,17 +302,17 @@ export default function CostsTab({
               ) : (
                 products.map((product) => (
                   <label
-                    key={product.id}
+                    key={product.productId}
                     className="flex items-center gap-2 cursor-pointer"
                   >
                     <input
                       type="checkbox"
-                      checked={formData.linkedProductIds.includes(product.id)}
-                      onChange={() => toggleProduct(product.id)}
+                      checked={formData.linkedProductIds.includes(product.productId)}
+                      onChange={() => toggleProduct(product.productId)}
                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm">
-                      {product.name} ({product.supplier})
+                      {product.name} ({product.supplier || 'ללא ספק'})
                     </span>
                   </label>
                 ))
