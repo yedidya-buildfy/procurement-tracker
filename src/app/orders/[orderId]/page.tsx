@@ -241,6 +241,7 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
                 order={order}
                 summary={summary}
                 milestones={data.orderMilestones}
+                products={data.products}
               />
             )}
             {activeTab === 'products' && (

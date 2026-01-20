@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { formatCurrency, formatNumber, formatDate } from '@/lib/utils';
+import { exportToCSV, exportToXLSX, ProductCostRow } from '@/lib/exportUtils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
@@ -13,6 +14,8 @@ import {
   CheckCircleIcon,
   ClockIcon,
   TrashIcon,
+  DocumentTextIcon,
+  TableCellsIcon,
 } from '@heroicons/react/24/outline';
 
 interface Order {
@@ -35,6 +38,20 @@ interface Milestone {
   notes?: string;
 }
 
+interface ProductWithCosts {
+  productId: string;
+  name: string;
+  supplier?: string;
+  quantity: number;
+  pricePerUnit: number;
+  priceTotal: number;
+  currency: string;
+  priceILS: number;
+  additionalCostsILS: number;
+  finalCostILS: number;
+  finalCostPerUnitILS: number;
+}
+
 interface SummaryTabProps {
   order: Order;
   summary: {
@@ -48,12 +65,14 @@ interface SummaryTabProps {
     totalKG: number;
   };
   milestones: Milestone[];
+  products: ProductWithCosts[];
 }
 
 export default function SummaryTab({
   order,
   summary,
   milestones,
+  products,
 }: SummaryTabProps) {
   const { showToast } = useToast();
   const addOrderMilestoneMutation = useMutation(api.milestones.addOrderMilestone);
@@ -110,6 +129,35 @@ export default function SummaryTab({
       console.error('Error updating milestone:', error);
       showToast('שגיאה בעדכון מיילסטון', 'error');
     }
+  };
+
+  const prepareExportData = (products: ProductWithCosts[], totalOrderILS: number): ProductCostRow[] => {
+    return products.map((product) => {
+      const unitPriceILS = product.quantity > 0 ? product.priceILS / product.quantity : 0;
+      const percentOfOrder = totalOrderILS > 0
+        ? (product.finalCostILS / totalOrderILS) * 100
+        : 0;
+
+      const currencySymbols: Record<string, string> = {
+        USD: '$',
+        CNY: '¥',
+        ILS: '₪',
+      };
+      const symbol = currencySymbols[product.currency] || product.currency;
+
+      return {
+        productName: product.name,
+        supplier: product.supplier || '',
+        quantity: product.quantity,
+        unitPrice: `${symbol}${product.pricePerUnit.toFixed(2)}`,
+        productCostILS: product.priceILS,
+        unitPriceILS,
+        additionalCostsILS: product.additionalCostsILS,
+        totalCostILS: product.finalCostILS,
+        landedUnitCostILS: product.finalCostPerUnitILS,
+        percentOfOrder,
+      };
+    });
   };
 
   return (
@@ -320,6 +368,105 @@ export default function SummaryTab({
           </div>
         )}
       </div>
+
+      {/* Product Cost Breakdown Table */}
+      {products.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">פירוט עלויות מוצרים</h3>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const exportData = prepareExportData(products, summary.totalOrderILS);
+                  exportToCSV(exportData, `${order.orderName}-עלויות`);
+                }}
+              >
+                <DocumentTextIcon className="w-4 h-4" />
+                CSV
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const exportData = prepareExportData(products, summary.totalOrderILS);
+                  exportToXLSX(exportData, `${order.orderName}-עלויות`);
+                }}
+              >
+                <TableCellsIcon className="w-4 h-4" />
+                Excel
+              </Button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="px-3 py-3 text-right font-medium text-gray-600">שם מוצר</th>
+                  <th className="px-3 py-3 text-right font-medium text-gray-600">ספק</th>
+                  <th className="px-3 py-3 text-right font-medium text-gray-600">כמות</th>
+                  <th className="px-3 py-3 text-right font-medium text-gray-600">מחיר/יח</th>
+                  <th className="px-3 py-3 text-right font-medium text-gray-600">עלות מוצר ₪</th>
+                  <th className="px-3 py-3 text-right font-medium text-gray-600">מחיר/יח ₪</th>
+                  <th className="px-3 py-3 text-right font-medium text-gray-600">עלויות נוספות ₪</th>
+                  <th className="px-3 py-3 text-right font-medium text-gray-600">עלות כוללת ₪</th>
+                  <th className="px-3 py-3 text-right font-medium text-gray-600">עלות/יח ₪</th>
+                  <th className="px-3 py-3 text-right font-medium text-gray-600">% מההזמנה</th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.map((product) => {
+                  const unitPriceILS = product.quantity > 0 ? product.priceILS / product.quantity : 0;
+                  const percentOfOrder = summary.totalOrderILS > 0
+                    ? (product.finalCostILS / summary.totalOrderILS) * 100
+                    : 0;
+
+                  return (
+                    <tr key={product.productId} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="px-3 py-3 font-medium text-gray-900">{product.name}</td>
+                      <td className="px-3 py-3 text-gray-600">{product.supplier || '-'}</td>
+                      <td className="px-3 py-3 text-gray-900">{formatNumber(product.quantity, 0)}</td>
+                      <td className="px-3 py-3 text-gray-600">
+                        {formatCurrency(product.pricePerUnit, product.currency)}
+                      </td>
+                      <td className="px-3 py-3 text-gray-900">{formatNumber(product.priceILS)}</td>
+                      <td className="px-3 py-3 text-gray-600">{formatNumber(unitPriceILS)}</td>
+                      <td className="px-3 py-3 text-gray-600">{formatNumber(product.additionalCostsILS)}</td>
+                      <td className="px-3 py-3 font-medium text-gray-900">{formatNumber(product.finalCostILS)}</td>
+                      <td className="px-3 py-3 font-medium text-gray-900">{formatNumber(product.finalCostPerUnitILS)}</td>
+                      <td className="px-3 py-3 text-gray-600">{formatNumber(percentOfOrder, 1)}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-gray-100 font-semibold">
+                  <td className="px-3 py-3 text-gray-900">סה"כ</td>
+                  <td className="px-3 py-3"></td>
+                  <td className="px-3 py-3 text-gray-900">
+                    {formatNumber(products.reduce((sum, p) => sum + p.quantity, 0), 0)}
+                  </td>
+                  <td className="px-3 py-3"></td>
+                  <td className="px-3 py-3 text-gray-900">
+                    {formatNumber(products.reduce((sum, p) => sum + p.priceILS, 0))}
+                  </td>
+                  <td className="px-3 py-3"></td>
+                  <td className="px-3 py-3 text-gray-900">
+                    {formatNumber(products.reduce((sum, p) => sum + p.additionalCostsILS, 0))}
+                  </td>
+                  <td className="px-3 py-3 text-gray-900">
+                    {formatNumber(products.reduce((sum, p) => sum + p.finalCostILS, 0))}
+                  </td>
+                  <td className="px-3 py-3"></td>
+                  <td className="px-3 py-3 text-gray-900">100%</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Add Milestone Modal */}
       <Modal
