@@ -154,6 +154,7 @@ export default defineSchema({
     ratingNotes: v.optional(v.string()),
     isRelevant: v.optional(v.boolean()),
     currentStage: v.optional(v.number()),
+    archived: v.optional(v.boolean()),
     notes: v.optional(v.string()),
     createdDate: v.string(),
   })

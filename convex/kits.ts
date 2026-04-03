@@ -376,6 +376,7 @@ export const updateSample = mutation({
     ratingNotes: v.optional(v.string()),
     isRelevant: v.optional(v.boolean()),
     currentStage: v.optional(v.number()),
+    archived: v.optional(v.boolean()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -395,6 +396,7 @@ export const updateSample = mutation({
     if (args.ratingNotes !== undefined) updates.ratingNotes = args.ratingNotes;
     if (args.isRelevant !== undefined) updates.isRelevant = args.isRelevant;
     if (args.currentStage !== undefined) updates.currentStage = args.currentStage;
+    if (args.archived !== undefined) updates.archived = args.archived;
     if (args.notes !== undefined) updates.notes = args.notes;
 
     await ctx.db.patch(sample._id, updates);

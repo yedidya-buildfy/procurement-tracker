@@ -24,6 +24,8 @@ import {
   ChevronDownIcon,
   FunnelIcon,
   ClipboardDocumentIcon,
+  ArchiveBoxIcon,
+  ArchiveBoxXMarkIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarSolid } from '@heroicons/react/24/solid';
 import { Doc, Id } from '../../../convex/_generated/dataModel';
@@ -140,6 +142,7 @@ export default function SamplesTab({
 
   // Filter & sort
   const [starFilter, setStarFilter] = useState<number | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -161,7 +164,9 @@ export default function SamplesTab({
   };
 
   // Filter and sort samples
-  const productSamplesRaw = samples.filter((s) => s.kitProductId === activeProductId);
+  const productSamplesAll = samples.filter((s) => s.kitProductId === activeProductId);
+  const archivedCount = productSamplesAll.filter((s) => s.archived).length;
+  const productSamplesRaw = productSamplesAll.filter((s) => showArchived || !s.archived);
   const productSamples = productSamplesRaw
     .filter((s) => {
       if (starFilter === null) return true;
@@ -369,6 +374,12 @@ export default function SamplesTab({
       console.error('Error updating sample:', error);
       showToast('שגיאה בעדכון דוגמית', 'error');
     }
+  };
+
+  const handleArchiveSample = async (sample: Doc<'samples'>) => {
+    const newValue = !sample.archived;
+    await updateSampleMutation({ sampleId: sample.sampleId, archived: newValue });
+    showToast(newValue ? 'דוגמית הועברה לארכיון' : 'דוגמית שוחזרה', 'success');
   };
 
   const handleUploadImages = async (sampleId: string, files: FileList) => {
@@ -586,11 +597,25 @@ export default function SamplesTab({
             >
               ללא דירוג
             </button>
-            {starFilter !== null && (
-              <span className="text-xs text-gray-400 mr-auto">
-                {productSamples.length} / {productSamplesRaw.length}
+            {(starFilter !== null || showArchived) && (
+              <span className="text-xs text-gray-400">
+                {productSamples.length} / {productSamplesAll.length}
               </span>
             )}
+            {/* Archive toggle - push to left side */}
+            <div className="mr-auto">
+              {archivedCount > 0 && (
+                <button
+                  onClick={() => setShowArchived(!showArchived)}
+                  className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full transition-colors ${
+                    showArchived ? 'bg-gray-200 text-gray-700 font-medium' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  <ArchiveBoxIcon className="w-3 h-3" />
+                  {showArchived ? `הסתר ארכיון (${archivedCount})` : `ארכיון (${archivedCount})`}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -621,7 +646,7 @@ export default function SamplesTab({
                     return (
                       <tr
                         key={sample.sampleId}
-                        className="border-b border-gray-100 hover:bg-blue-50/30"
+                        className={`border-b border-gray-100 hover:bg-blue-50/30 ${sample.archived ? 'opacity-50' : ''}`}
                       >
                         {/* Image - first column, big */}
                         <td className="px-2 py-1 align-middle">
@@ -798,6 +823,17 @@ export default function SamplesTab({
                               title="העתק לווטסאפ"
                             >
                               <ClipboardDocumentIcon className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleArchiveSample(sample)}
+                              className={`p-1.5 rounded transition-colors ${
+                                sample.archived
+                                  ? 'text-amber-500 hover:text-amber-600 hover:bg-amber-50'
+                                  : 'text-gray-400 hover:text-amber-500 hover:bg-amber-50'
+                              }`}
+                              title={sample.archived ? 'שחזר מארכיון' : 'העבר לארכיון'}
+                            >
+                              {sample.archived ? <ArchiveBoxXMarkIcon className="w-4 h-4" /> : <ArchiveBoxIcon className="w-4 h-4" />}
                             </button>
                             <button
                               onClick={() => handleDeleteSample(sample.sampleId)}
