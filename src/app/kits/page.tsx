@@ -46,27 +46,31 @@ function KitImageSlot({ kitId }: { kitId: string }) {
 
   return (
     <>
-      <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.preventDefault()}>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
         {(images || []).map((img) =>
           img.url ? (
             <div key={img._id} className="relative group/ki">
               <img
                 src={img.url}
                 alt=""
-                className="w-10 h-10 object-cover rounded-lg border border-gray-200 hover:border-blue-300 cursor-pointer"
-                onClick={() => setLightbox(img.url)}
+                className="w-12 h-12 object-cover rounded-lg border border-gray-200 hover:border-blue-300 cursor-pointer"
+                onClick={(e) => { e.stopPropagation(); setLightbox(img.url); }}
               />
               <button
-                onClick={() => deleteImage({ id: img._id as Id<'kitImages'> })}
-                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/ki:opacity-100 transition-opacity"
+                onClick={(e) => { e.stopPropagation(); deleteImage({ id: img._id as Id<'kitImages'> }); }}
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/ki:opacity-100 transition-opacity"
               >
-                <XMarkIcon className="w-2.5 h-2.5" />
+                <XMarkIcon className="w-3 h-3" />
               </button>
             </div>
           ) : null
         )}
-        <label className="w-10 h-10 flex items-center justify-center border border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
-          <PhotoIcon className="w-4 h-4 text-gray-400" />
+        <label
+          className="w-12 h-12 flex flex-col items-center justify-center gap-0.5 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <PhotoIcon className="w-5 h-5 text-gray-400" />
+          <span className="text-[9px] text-gray-400">הוסף</span>
           <input
             type="file"
             accept="image/*"
