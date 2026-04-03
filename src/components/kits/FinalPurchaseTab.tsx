@@ -289,10 +289,13 @@ export default function FinalPurchaseTab({
                   <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{getProductName(fp.kitProductId)}</td>
                   <td className="px-1 py-1">
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       value={fp.quantity ?? ''}
                       onChange={async (e) => {
-                        const val = e.target.value ? parseInt(e.target.value) : undefined;
+                        const raw = e.target.value.replace(/[^0-9]/g, '');
+                        const val = raw ? parseInt(raw) : undefined;
                         const newTotal = val && fp.pricePerUnit ? val * fp.pricePerUnit : undefined;
                         await updateFinalProductMutation({
                           kitFinalProductId: fp.kitFinalProductId,
