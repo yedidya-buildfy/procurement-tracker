@@ -107,7 +107,7 @@ export default function FinalPurchaseTab({
 
   const totalCostsAmount = costs.reduce((sum, c) => sum + getCostCalculatedAmount(c), 0);
   const grandTotal = productsTotalCost + totalCostsAmount;
-  const totalWeight = finalProducts.reduce((sum, fp) => sum + (fp.weight || 0), 0);
+  const totalWeight = finalProducts.reduce((sum, fp) => sum + ((fp.weight || 0) * (fp.quantity || 0)), 0);
   const totalPricePerUnit = finalProducts.reduce((sum, fp) => sum + (fp.pricePerUnit || 0), 0);
 
   // Product handlers
@@ -272,7 +272,8 @@ export default function FinalPurchaseTab({
                 <th className="px-3 py-3 text-right font-medium text-gray-600">ספק</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">מחיר/יח ($)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">סה"כ ($)</th>
-                <th className="px-3 py-3 text-right font-medium text-gray-600">משקל (ג)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">משקל/יח (ג)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">משקל כולל (ג)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">MOQ</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">סבב ייצור</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600 w-[80px]">פעולות</th>
@@ -291,6 +292,7 @@ export default function FinalPurchaseTab({
                   <td className="px-3 py-3 text-gray-900">{fp.pricePerUnit != null ? `$${formatNumber(fp.pricePerUnit, 3)}` : '-'}</td>
                   <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{rowTotal > 0 ? `$${formatNumber(rowTotal)}` : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.weight != null ? formatNumber(fp.weight, 0) : '-'}</td>
+                  <td className="px-3 py-3 text-gray-600">{fp.weight != null && fp.quantity != null ? formatNumber(fp.weight * fp.quantity, 0) : '-'}</td>
                   <td className={`px-3 py-3 ${belowMoq ? 'text-red-700 font-medium' : 'text-gray-600'}`}>{fp.moq != null ? formatNumber(fp.moq, 0) : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.productionRound || '-'}</td>
                   <td className="px-3 py-3">
@@ -313,7 +315,7 @@ export default function FinalPurchaseTab({
                   <td className="px-3 py-2 text-gray-500 font-medium">סה"כ מוצרים</td>
                   <td colSpan={3} className="px-3 py-2"></td>
                   <td className="px-3 py-2 text-gray-700 font-medium">${formatNumber(productsTotalCost)}</td>
-                  <td colSpan={4} className="px-3 py-2"></td>
+                  <td colSpan={5} className="px-3 py-2"></td>
                 </tr>
               )}
 
@@ -334,7 +336,7 @@ export default function FinalPurchaseTab({
                     <td className="px-3 py-3 text-xs text-orange-600">{scope}</td>
                     <td className="px-3 py-3"></td>
                     <td className="px-3 py-3 font-medium text-orange-800">${formatNumber(calculated)}</td>
-                    <td colSpan={3} className="px-3 py-3 text-gray-500 text-xs">{cost.notes || ''}</td>
+                    <td colSpan={4} className="px-3 py-3 text-gray-500 text-xs">{cost.notes || ''}</td>
                     <td className="px-3 py-3">
                       <div className="flex gap-1">
                         <button onClick={() => startEditCost(cost)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
@@ -356,6 +358,7 @@ export default function FinalPurchaseTab({
                 <td className="px-3 py-3"></td>
                 <td className="px-3 py-3 text-gray-900">${formatNumber(totalPricePerUnit, 3)}</td>
                 <td className="px-3 py-3 text-gray-900">${formatNumber(grandTotal)}</td>
+                <td className="px-3 py-3"></td>
                 <td className="px-3 py-3 text-gray-900">{formatNumber(totalWeight, 0)}</td>
                 <td colSpan={2} className="px-3 py-3"></td>
                 <td className="px-3 py-3"></td>
