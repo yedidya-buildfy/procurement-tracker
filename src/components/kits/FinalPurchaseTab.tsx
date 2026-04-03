@@ -17,6 +17,7 @@ import {
   DocumentIcon,
   PhotoIcon,
   XMarkIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 import { Doc, Id } from '../../../convex/_generated/dataModel';
 
@@ -280,6 +281,44 @@ export default function FinalPurchaseTab({
 
   const isImage = (fileType: string) => fileType.startsWith('image/');
 
+  const handleExportCSV = () => {
+    const headers = ['שם פריט', 'כמות', 'ספק', 'מחיר/יח ($)', 'סה"כ ($)', 'משקל/יח (ג)', 'משקל כולל (ג)', 'MOQ', 'סבב ייצור'];
+    const rows = finalProducts.map((fp) => {
+      const total = getRowTotal(fp);
+      const totalWt = (fp.weight || 0) * (fp.quantity || 0);
+      return [
+        getProductName(fp.kitProductId),
+        fp.quantity ?? '',
+        getSupplierName(fp.supplierId),
+        fp.pricePerUnit ?? '',
+        total || '',
+        fp.weight ?? '',
+        totalWt || '',
+        fp.moq ?? '',
+        fp.productionRound || '',
+      ];
+    });
+    // Add costs
+    for (const cost of costs) {
+      const calculated = getCostCalculatedAmount(cost);
+      const label = cost.costType === 'percentage' ? `${cost.description} (${cost.amount}%)` : cost.description;
+      rows.push([label, '', '', '', calculated, '', '', '', cost.notes || '']);
+    }
+    // Totals
+    rows.push(['סה"כ', '', '', totalPricePerUnit, grandTotal, '', totalWeight, '', '']);
+
+    const BOM = '\uFEFF';
+    const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
+    const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'קנייה-סופית.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  };
+
   const canAddProduct = productForm.kitProductId || productForm.newProductName.trim();
 
   return (
@@ -287,6 +326,10 @@ export default function FinalPurchaseTab({
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">קנייה סופית</h3>
         <div className="flex gap-2">
+          <Button size="sm" variant="secondary" onClick={handleExportCSV}>
+            <ArrowDownTrayIcon className="w-4 h-4" />
+            CSV
+          </Button>
           <Button size="sm" variant="secondary" onClick={() => { setShowAddCost(true); resetCostForm(); }}>
             <PlusIcon className="w-4 h-4" />
             הוסף עלות
