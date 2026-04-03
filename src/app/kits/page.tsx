@@ -20,18 +20,24 @@ import {
   CubeIcon,
   TrashIcon,
   ArrowRightIcon,
+  PencilIcon,
+  CheckIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 export default function KitsPage() {
   const kits = useQuery(api.kits.getAllKits);
   const createKitMutation = useMutation(api.kits.createKit);
   const deleteKitMutation = useMutation(api.kits.deleteKit);
+  const updateKitMutation = useMutation(api.kits.updateKit);
 
   const [search, setSearch] = useState('');
   const [showNewKit, setShowNewKit] = useState(false);
   const [newKit, setNewKit] = useState({ name: '', notes: '' });
   const [deleteKitId, setDeleteKitId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [editingKitId, setEditingKitId] = useState<string | null>(null);
+  const [editKitName, setEditKitName] = useState('');
   const { showToast } = useToast();
 
   const handleCreateKit = async () => {
@@ -179,12 +185,49 @@ export default function KitsPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {filteredKits.map((kit) => (
-              <Link key={kit.kitId} href={`/kits/${kit.kitId}`}>
-                <Card className="hover:shadow-md hover:border-blue-200 transition-all cursor-pointer">
+              <div key={kit.kitId}>
+                <Card className="hover:shadow-md hover:border-blue-200 transition-all">
                   <div className="flex items-center gap-6">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 truncate">{kit.name}</h3>
-                      <p className="text-sm text-gray-500">{kit.kitId}</p>
+                      {editingKitId === kit.kitId ? (
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            value={editKitName}
+                            onChange={(e) => setEditKitName(e.target.value)}
+                            className="font-semibold text-gray-900 border-b-2 border-blue-500 focus:outline-none bg-transparent"
+                            autoFocus
+                            onKeyDown={async (e) => {
+                              if (e.key === 'Enter' && editKitName.trim()) {
+                                await updateKitMutation({ kitId: kit.kitId, name: editKitName.trim() });
+                                setEditingKitId(null);
+                                showToast('שם ערכה עודכן', 'success');
+                              }
+                              if (e.key === 'Escape') setEditingKitId(null);
+                            }}
+                          />
+                          <button
+                            onClick={async () => {
+                              if (editKitName.trim()) {
+                                await updateKitMutation({ kitId: kit.kitId, name: editKitName.trim() });
+                                setEditingKitId(null);
+                                showToast('שם ערכה עודכן', 'success');
+                              }
+                            }}
+                            className="p-1 text-green-600 hover:bg-green-50 rounded"
+                          >
+                            <CheckIcon className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setEditingKitId(null)} className="p-1 text-gray-400 hover:bg-gray-100 rounded">
+                            <XMarkIcon className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <Link href={`/kits/${kit.kitId}`} className="block cursor-pointer">
+                          <h3 className="font-semibold text-gray-900 truncate">{kit.name}</h3>
+                          <p className="text-sm text-gray-500">{kit.kitId}</p>
+                        </Link>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -225,6 +268,18 @@ export default function KitsPage() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
+                        setEditingKitId(kit.kitId);
+                        setEditKitName(kit.name);
+                      }}
+                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="ערוך שם"
+                    >
+                      <PencilIcon className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         setDeleteKitId(kit.kitId);
                       }}
                       className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
@@ -234,7 +289,7 @@ export default function KitsPage() {
                     </button>
                   </div>
                 </Card>
-              </Link>
+              </div>
             ))}
           </div>
         )}
