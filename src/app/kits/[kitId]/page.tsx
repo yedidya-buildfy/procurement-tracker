@@ -94,7 +94,7 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
     );
   }
 
-  const { kit, products, samples, sampleMilestones, trackingNumbers, sampleImages, finalProducts, costs, suppliers } = data;
+  const { kit, products, samples, sampleMilestones, trackingNumbers, sampleImages, finalProducts, finalProductFiles, costs, suppliers } = data;
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'samples', label: `מוצרים ודוגמיות (${products.length})` },
@@ -249,6 +249,7 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
                 kitId={kitId}
                 products={products}
                 finalProducts={finalProducts}
+                finalProductFiles={finalProductFiles}
                 costs={costs}
                 suppliers={suppliers}
                 allSuppliers={allSuppliers}

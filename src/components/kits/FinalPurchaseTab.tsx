@@ -13,13 +13,26 @@ import {
   PlusIcon,
   TrashIcon,
   PencilIcon,
+  PaperClipIcon,
+  DocumentIcon,
+  PhotoIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
-import { Doc } from '../../../convex/_generated/dataModel';
+import { Doc, Id } from '../../../convex/_generated/dataModel';
+
+interface FinalProductFile {
+  _id: string;
+  kitFinalProductId: string;
+  url: string | null;
+  fileName: string;
+  fileType: string;
+}
 
 interface FinalPurchaseTabProps {
   kitId: string;
   products: Doc<'kitProducts'>[];
   finalProducts: Doc<'kitFinalProducts'>[];
+  finalProductFiles: FinalProductFile[];
   costs: Doc<'kitAdditionalCosts'>[];
   suppliers: Doc<'suppliers'>[];
   allSuppliers: Doc<'suppliers'>[];
@@ -29,6 +42,7 @@ export default function FinalPurchaseTab({
   kitId,
   products,
   finalProducts,
+  finalProductFiles,
   costs,
   suppliers,
   allSuppliers,
@@ -42,6 +56,11 @@ export default function FinalPurchaseTab({
   const addCostMutation = useMutation(api.kits.addKitCost);
   const updateCostMutation = useMutation(api.kits.updateKitCost);
   const deleteCostMutation = useMutation(api.kits.deleteKitCost);
+  const generateUploadUrlMutation = useMutation(api.kits.generateUploadUrl);
+  const addFileMutation = useMutation(api.kits.addFinalProductFile);
+  const deleteFileMutation = useMutation(api.kits.deleteFinalProductFile);
+
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   // Product form
   const [showAddProduct, setShowAddProduct] = useState(false);
@@ -240,6 +259,27 @@ export default function FinalPurchaseTab({
     });
   };
 
+  const handleUploadFile = async (kitFinalProductId: string, files: FileList) => {
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const uploadUrl = await generateUploadUrlMutation();
+        const result = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
+        const { storageId } = await result.json();
+        await addFileMutation({ kitFinalProductId, storageId, fileName: file.name, fileType: file.type });
+      }
+      showToast(`${files.length} קבצים הועלו`, 'success');
+    } catch {
+      showToast('שגיאה בהעלאת קבצים', 'error');
+    }
+  };
+
+  const handleDeleteFile = async (fileId: string) => {
+    await deleteFileMutation({ id: fileId as Id<'kitFinalProductFiles'> });
+  };
+
+  const isImage = (fileType: string) => fileType.startsWith('image/');
+
   const canAddProduct = productForm.kitProductId || productForm.newProductName.trim();
 
   return (
@@ -276,6 +316,7 @@ export default function FinalPurchaseTab({
                 <th className="px-3 py-3 text-right font-medium text-gray-600">משקל כולל (ג)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">MOQ</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">סבב ייצור</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">קבצים</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600 w-[80px]">פעולות</th>
               </tr>
             </thead>
@@ -318,6 +359,55 @@ export default function FinalPurchaseTab({
                   <td className="px-3 py-3 text-gray-600">{fp.weight != null && fp.quantity != null ? formatNumber(fp.weight * fp.quantity, 0) : '-'}</td>
                   <td className={`px-3 py-3 ${belowMoq ? 'text-red-700 font-medium' : 'text-gray-600'}`}>{fp.moq != null ? formatNumber(fp.moq, 0) : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.productionRound || '-'}</td>
+                  {/* Files */}
+                  <td className="px-2 py-2">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {finalProductFiles
+                        .filter((f) => f.kitFinalProductId === fp.kitFinalProductId)
+                        .map((file) => (
+                          <div key={file._id} className="relative group/file">
+                            {isImage(file.fileType) && file.url ? (
+                              <img
+                                src={file.url}
+                                alt={file.fileName}
+                                className="w-8 h-8 object-cover rounded cursor-pointer border border-gray-200 hover:border-blue-300"
+                                onClick={() => setLightboxUrl(file.url)}
+                              />
+                            ) : (
+                              <a
+                                href={file.url || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 px-1.5 py-1 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600 hover:bg-blue-50 hover:border-blue-300"
+                                title={file.fileName}
+                              >
+                                <DocumentIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span className="truncate max-w-[60px]">{file.fileName.split('.').pop()}</span>
+                              </a>
+                            )}
+                            <button
+                              onClick={() => handleDeleteFile(file._id)}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/file:opacity-100 transition-opacity"
+                            >
+                              <XMarkIcon className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        ))}
+                      <label className="flex items-center justify-center w-8 h-8 border border-dashed border-gray-300 rounded cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                        <PaperClipIcon className="w-4 h-4 text-gray-400" />
+                        <input
+                          type="file"
+                          accept="image/*,.pdf,.xlsx,.xls,.doc,.docx,.csv"
+                          multiple
+                          onChange={(e) => {
+                            if (e.target.files) handleUploadFile(fp.kitFinalProductId, e.target.files);
+                            e.target.value = '';
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </td>
                   <td className="px-3 py-3">
                     <div className="flex gap-1">
                       <button onClick={() => startEditProduct(fp)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
@@ -338,7 +428,7 @@ export default function FinalPurchaseTab({
                   <td className="px-3 py-2 text-gray-500 font-medium">סה"כ מוצרים</td>
                   <td colSpan={3} className="px-3 py-2"></td>
                   <td className="px-3 py-2 text-gray-700 font-medium">${formatNumber(productsTotalCost)}</td>
-                  <td colSpan={5} className="px-3 py-2"></td>
+                  <td colSpan={6} className="px-3 py-2"></td>
                 </tr>
               )}
 
@@ -359,7 +449,7 @@ export default function FinalPurchaseTab({
                     <td className="px-3 py-3 text-xs text-orange-600">{scope}</td>
                     <td className="px-3 py-3"></td>
                     <td className="px-3 py-3 font-medium text-orange-800">${formatNumber(calculated)}</td>
-                    <td colSpan={4} className="px-3 py-3 text-gray-500 text-xs">{cost.notes || ''}</td>
+                    <td colSpan={5} className="px-3 py-3 text-gray-500 text-xs">{cost.notes || ''}</td>
                     <td className="px-3 py-3">
                       <div className="flex gap-1">
                         <button onClick={() => startEditCost(cost)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
@@ -383,7 +473,7 @@ export default function FinalPurchaseTab({
                 <td className="px-3 py-3 text-gray-900">${formatNumber(grandTotal)}</td>
                 <td className="px-3 py-3"></td>
                 <td className="px-3 py-3 text-gray-900">{formatNumber(totalWeight, 0)}</td>
-                <td colSpan={2} className="px-3 py-3"></td>
+                <td colSpan={3} className="px-3 py-3"></td>
                 <td className="px-3 py-3"></td>
               </tr>
             </tfoot>
@@ -547,6 +637,21 @@ export default function FinalPurchaseTab({
         </div>
       </Modal>
       {ConfirmDialog}
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <>
+          <div className="fixed inset-0 bg-black/80 z-40" onClick={() => setLightboxUrl(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setLightboxUrl(null)}>
+            <div className="relative max-w-4xl max-h-[90vh]">
+              <img src={lightboxUrl} alt="" className="max-w-full max-h-[90vh] object-contain rounded-lg" />
+              <button onClick={() => setLightboxUrl(null)} className="absolute top-2 left-2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70">
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

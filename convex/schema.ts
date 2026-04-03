@@ -201,6 +201,14 @@ export default defineSchema({
     .index("by_kitId", ["kitId"])
     .index("by_costId", ["costId"]),
 
+  kitFinalProductFiles: defineTable({
+    kitFinalProductId: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    fileType: v.string(),
+  })
+    .index("by_kitFinalProductId", ["kitFinalProductId"]),
+
   kitFinalProducts: defineTable({
     kitFinalProductId: v.string(),
     kitProductId: v.string(),

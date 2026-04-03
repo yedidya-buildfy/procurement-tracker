@@ -108,6 +108,19 @@ export const getKitFull = query({
       allFinalProducts.push(...finalProducts);
     }
 
+    // Get final product files
+    const allFinalProductFiles: { _id: string; kitFinalProductId: string; url: string | null; fileName: string; fileType: string }[] = [];
+    for (const fp of allFinalProducts) {
+      const files = await ctx.db
+        .query("kitFinalProductFiles")
+        .withIndex("by_kitFinalProductId", (q) => q.eq("kitFinalProductId", fp.kitFinalProductId))
+        .collect();
+      for (const f of files) {
+        const url = await ctx.storage.getUrl(f.storageId);
+        allFinalProductFiles.push({ _id: f._id as string, kitFinalProductId: f.kitFinalProductId, url, fileName: f.fileName, fileType: f.fileType });
+      }
+    }
+
     // Get all relevant suppliers
     const supplierIds = new Set([
       ...allSamples.map((s) => s.supplierId),
@@ -136,6 +149,7 @@ export const getKitFull = query({
       trackingNumbers: allTrackingNumbers,
       sampleImages: allImages,
       finalProducts: allFinalProducts,
+      finalProductFiles: allFinalProductFiles,
       costs,
       suppliers,
     };
@@ -718,6 +732,34 @@ export const deleteKitCost = mutation({
     if (!cost) return false;
     await ctx.db.delete(cost._id);
     return true;
+  },
+});
+
+// Final Product Files
+export const addFinalProductFile = mutation({
+  args: {
+    kitFinalProductId: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    fileType: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("kitFinalProductFiles", {
+      kitFinalProductId: args.kitFinalProductId,
+      storageId: args.storageId,
+      fileName: args.fileName,
+      fileType: args.fileType,
+    });
+  },
+});
+
+export const deleteFinalProductFile = mutation({
+  args: { id: v.id("kitFinalProductFiles") },
+  handler: async (ctx, { id }) => {
+    const file = await ctx.db.get(id);
+    if (!file) return;
+    await ctx.storage.delete(file.storageId);
+    await ctx.db.delete(id);
   },
 });
 
