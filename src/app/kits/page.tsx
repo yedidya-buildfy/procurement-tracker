@@ -46,39 +46,48 @@ function KitImageSlot({ kitId }: { kitId: string }) {
 
   return (
     <>
-      <div className="flex items-center gap-1.5 flex-shrink-0">
-        {(images || []).map((img) =>
-          img.url ? (
-            <div key={img._id} className="relative group/ki">
-              <img
-                src={img.url}
-                alt=""
-                className="w-12 h-12 object-cover rounded-lg border border-gray-200 hover:border-blue-300 cursor-pointer"
-                onClick={(e) => { e.stopPropagation(); setLightbox(img.url); }}
+      <div className="flex-shrink-0">
+        {(images || []).length > 0 && images![0].url ? (
+          <div className="relative group/ki">
+            <img
+              src={images![0].url}
+              alt=""
+              className="w-16 h-16 object-cover rounded-xl border border-gray-200 hover:border-blue-300 cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); setLightbox(images![0].url); }}
+            />
+            <label
+              className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-xl opacity-0 group-hover/ki:opacity-100 transition-opacity cursor-pointer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <PhotoIcon className="w-5 h-5 text-white" />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={async (e) => {
+                  if (!e.target.files?.[0]) return;
+                  // Delete old image first
+                  if (images![0]._id) await deleteImage({ id: images![0]._id as Id<'kitImages'> });
+                  await handleUpload(e.target.files);
+                  e.target.value = '';
+                }}
+                className="hidden"
               />
-              <button
-                onClick={(e) => { e.stopPropagation(); deleteImage({ id: img._id as Id<'kitImages'> }); }}
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/ki:opacity-100 transition-opacity"
-              >
-                <XMarkIcon className="w-3 h-3" />
-              </button>
-            </div>
-          ) : null
+            </label>
+          </div>
+        ) : (
+          <label
+            className="w-16 h-16 flex items-center justify-center border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PhotoIcon className="w-6 h-6 text-gray-300" />
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => { if (e.target.files) handleUpload(e.target.files); e.target.value = ''; }}
+              className="hidden"
+            />
+          </label>
         )}
-        <label
-          className="w-12 h-12 flex flex-col items-center justify-center gap-0.5 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <PhotoIcon className="w-5 h-5 text-gray-400" />
-          <span className="text-[9px] text-gray-400">הוסף</span>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(e) => { if (e.target.files) handleUpload(e.target.files); e.target.value = ''; }}
-            className="hidden"
-          />
-        </label>
       </div>
 
       {lightbox && (
