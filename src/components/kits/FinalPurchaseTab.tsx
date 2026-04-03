@@ -89,7 +89,7 @@ export default function FinalPurchaseTab({
   const getRowTotal = (fp: Doc<'kitFinalProducts'>) => {
     const qty = fp.quantity || 0;
     const ppu = fp.pricePerUnit || 0;
-    return qty && ppu ? qty * ppu : (fp.totalCost || 0);
+    return qty * ppu;
   };
   const productsTotalCost = finalProducts.reduce((sum, fp) => sum + getRowTotal(fp), 0);
 
