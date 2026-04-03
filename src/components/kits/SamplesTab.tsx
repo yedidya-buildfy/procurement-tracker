@@ -131,6 +131,12 @@ export default function SamplesTab({
   const [newTracking, setNewTracking] = useState({ leg: '', trackingNumber: '', carrier: '' });
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [uploadingSampleId, setUploadingSampleId] = useState<string | null>(null);
+  const [editingSampleId, setEditingSampleId] = useState<string | null>(null);
+  const [editSampleForm, setEditSampleForm] = useState({
+    sampleCost: '',
+    currentStage: 0,
+    notes: '',
+  });
 
   // Filter & sort
   const [starFilter, setStarFilter] = useState<number | null>(null);
@@ -336,6 +342,32 @@ export default function SamplesTab({
     } catch (error) {
       console.error('Error updating stage:', error);
       showToast('שגיאה בעדכון שלב', 'error');
+    }
+  };
+
+  const startEditSample = (sample: Doc<'samples'>) => {
+    setEditingSampleId(sample.sampleId);
+    setEditSampleForm({
+      sampleCost: sample.sampleCost?.toString() || '',
+      currentStage: sample.currentStage ?? 0,
+      notes: sample.notes || '',
+    });
+  };
+
+  const handleUpdateSample = async () => {
+    if (!editingSampleId) return;
+    try {
+      await updateSampleMutation({
+        sampleId: editingSampleId,
+        sampleCost: editSampleForm.sampleCost ? parseFloat(editSampleForm.sampleCost) : undefined,
+        currentStage: editSampleForm.currentStage,
+        notes: editSampleForm.notes || undefined,
+      });
+      showToast('דוגמית עודכנה', 'success');
+      setEditingSampleId(null);
+    } catch (error) {
+      console.error('Error updating sample:', error);
+      showToast('שגיאה בעדכון דוגמית', 'error');
     }
   };
 
@@ -571,7 +603,7 @@ export default function SamplesTab({
                   <SortHeader label="דירוג" sortKey="rating" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-[100px] px-2" center />
                   <SortHeader label="איפה הדוגמית" sortKey="stage" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="px-3" />
                   <th className="px-3 py-2.5 text-right font-medium text-gray-600 whitespace-nowrap">הערות</th>
-                  <th className="px-2 py-2.5 text-center font-medium text-gray-600 whitespace-nowrap w-[35px]"></th>
+                  <th className="px-2 py-2.5 text-center font-medium text-gray-600 whitespace-nowrap w-[100px]">פעולות</th>
                 </tr>
               </thead>
               <tbody>
@@ -751,18 +783,25 @@ export default function SamplesTab({
                         </td>
 
                         {/* Actions */}
-                        <td className="px-2 py-2 text-center">
-                          <div className="flex flex-col items-center gap-0.5">
+                        <td className="px-2 py-2">
+                          <div className="flex items-center gap-1 justify-center">
+                            <button
+                              onClick={() => startEditSample(sample)}
+                              className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              title="ערוך"
+                            >
+                              <PencilIcon className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={() => handleCopyToClipboard(sample)}
-                              className="p-1 text-gray-300 hover:text-green-500 hover:bg-green-50 rounded transition-colors"
-                              title="שלח לווטסאפ"
+                              className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
+                              title="העתק לווטסאפ"
                             >
                               <ClipboardDocumentIcon className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleDeleteSample(sample.sampleId)}
-                              className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
                               title="מחק"
                             >
                               <TrashIcon className="w-4 h-4" />
@@ -932,6 +971,32 @@ export default function SamplesTab({
           <div className="flex justify-end gap-3 pt-4">
             <Button variant="secondary" onClick={() => setShowTrackingModal(null)}>ביטול</Button>
             <Button onClick={handleAddTracking} disabled={!newTracking.leg || !newTracking.trackingNumber.trim()}>הוסף</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Sample */}
+      <Modal isOpen={!!editingSampleId} onClose={() => setEditingSampleId(null)} title="עריכת דוגמית" size="lg">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Input id="editCost" label="עלות ($)" type="number" value={editSampleForm.sampleCost} onChange={(e) => setEditSampleForm({ ...editSampleForm, sampleCost: e.target.value })} placeholder="0" />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">איפה הדוגמית</label>
+              <select
+                value={editSampleForm.currentStage}
+                onChange={(e) => setEditSampleForm({ ...editSampleForm, currentStage: parseInt(e.target.value) })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {SAMPLE_STAGES.map((stage) => (
+                  <option key={stage.id} value={stage.id}>{stage.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <Input id="editNotes" label="הערות" value={editSampleForm.notes} onChange={(e) => setEditSampleForm({ ...editSampleForm, notes: e.target.value })} />
+          <div className="flex justify-end gap-3 pt-4">
+            <Button variant="secondary" onClick={() => setEditingSampleId(null)}>ביטול</Button>
+            <Button onClick={handleUpdateSample}>שמור</Button>
           </div>
         </div>
       </Modal>
