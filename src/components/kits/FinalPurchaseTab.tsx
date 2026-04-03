@@ -1,0 +1,494 @@
+'use client';
+
+import { useState } from 'react';
+import { useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
+import { formatNumber } from '@/lib/utils';
+import Button from '@/components/ui/Button';
+import Modal from '@/components/ui/Modal';
+import Input from '@/components/ui/Input';
+import { useToast } from '@/components/ui/Toast';
+import { useConfirm } from '@/components/ui/useConfirm';
+import {
+  PlusIcon,
+  TrashIcon,
+  PencilIcon,
+} from '@heroicons/react/24/outline';
+import { Doc } from '../../../convex/_generated/dataModel';
+
+interface FinalPurchaseTabProps {
+  kitId: string;
+  products: Doc<'kitProducts'>[];
+  finalProducts: Doc<'kitFinalProducts'>[];
+  costs: Doc<'kitAdditionalCosts'>[];
+  suppliers: Doc<'suppliers'>[];
+  allSuppliers: Doc<'suppliers'>[];
+}
+
+export default function FinalPurchaseTab({
+  kitId,
+  products,
+  finalProducts,
+  costs,
+  suppliers,
+  allSuppliers,
+}: FinalPurchaseTabProps) {
+  const { showToast } = useToast();
+  const { confirm, ConfirmDialog } = useConfirm();
+  const addFinalProductMutation = useMutation(api.kits.addKitFinalProduct);
+  const updateFinalProductMutation = useMutation(api.kits.updateKitFinalProduct);
+  const deleteFinalProductMutation = useMutation(api.kits.deleteKitFinalProduct);
+  const addKitProductMutation = useMutation(api.kits.addKitProduct);
+  const addCostMutation = useMutation(api.kits.addKitCost);
+  const updateCostMutation = useMutation(api.kits.updateKitCost);
+  const deleteCostMutation = useMutation(api.kits.deleteKitCost);
+
+  // Product form
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [productForm, setProductForm] = useState({
+    kitProductId: '',
+    newProductName: '',
+    supplierId: '',
+    supplierSearch: '',
+    pricePerUnit: '',
+    weight: '',
+    moq: '',
+    totalCost: '',
+    productionRound: '',
+    notes: '',
+  });
+
+  // Cost form
+  const [showAddCost, setShowAddCost] = useState(false);
+  const [editingCostId, setEditingCostId] = useState<string | null>(null);
+  const [costForm, setCostForm] = useState({
+    description: '',
+    costType: 'fixed' as 'fixed' | 'percentage',
+    amount: '',
+    linkedProductIds: [] as string[],
+    applyToAll: true,
+    notes: '',
+  });
+
+  const getSupplierName = (supplierId: string | undefined) => {
+    if (!supplierId) return '-';
+    const allSups = [...suppliers, ...allSuppliers];
+    return allSups.find((s) => s.supplierId === supplierId)?.name || '-';
+  };
+
+  const getProductName = (kitProductId: string) => {
+    return products.find((p) => p.kitProductId === kitProductId)?.name || kitProductId;
+  };
+
+  const filteredSupplierSuggestions = allSuppliers.filter((s) =>
+    s.name.toLowerCase().includes(productForm.supplierSearch.toLowerCase())
+  );
+
+  // Calculate cost amounts
+  const productsTotalCost = finalProducts.reduce((sum, fp) => sum + (fp.totalCost || 0), 0);
+
+  const getCostCalculatedAmount = (cost: Doc<'kitAdditionalCosts'>) => {
+    if (cost.costType === 'fixed') return cost.amount;
+    // Percentage: calculate based on linked products or all
+    const linkedIds = cost.linkedProductIds;
+    const base = (!linkedIds || linkedIds.length === 0)
+      ? productsTotalCost
+      : finalProducts
+          .filter((fp) => linkedIds.includes(fp.kitProductId))
+          .reduce((sum, fp) => sum + (fp.totalCost || 0), 0);
+    return (cost.amount / 100) * base;
+  };
+
+  const totalCostsAmount = costs.reduce((sum, c) => sum + getCostCalculatedAmount(c), 0);
+  const grandTotal = productsTotalCost + totalCostsAmount;
+  const totalWeight = finalProducts.reduce((sum, fp) => sum + (fp.weight || 0), 0);
+  const totalPricePerUnit = finalProducts.reduce((sum, fp) => sum + (fp.pricePerUnit || 0), 0);
+
+  // Product handlers
+  const resetProductForm = () => setProductForm({ kitProductId: '', newProductName: '', supplierId: '', supplierSearch: '', pricePerUnit: '', weight: '', moq: '', totalCost: '', productionRound: '', notes: '' });
+
+  const handleAddProduct = async () => {
+    let productId = productForm.kitProductId;
+    if (!productId && productForm.newProductName.trim()) {
+      try {
+        productId = await addKitProductMutation({ kitId, name: productForm.newProductName.trim() });
+      } catch { showToast('שגיאה ביצירת מוצר', 'error'); return; }
+    }
+    if (!productId) return;
+    try {
+      await addFinalProductMutation({
+        kitProductId: productId,
+        supplierId: productForm.supplierId || undefined,
+        pricePerUnit: productForm.pricePerUnit ? parseFloat(productForm.pricePerUnit) : undefined,
+        weight: productForm.weight ? parseFloat(productForm.weight) : undefined,
+        moq: productForm.moq ? parseInt(productForm.moq) : undefined,
+        totalCost: productForm.totalCost ? parseFloat(productForm.totalCost) : undefined,
+        productionRound: productForm.productionRound || undefined,
+        notes: productForm.notes || undefined,
+      });
+      showToast('פריט נוסף', 'success');
+      setShowAddProduct(false);
+      resetProductForm();
+    } catch { showToast('שגיאה בהוספת פריט', 'error'); }
+  };
+
+  const handleUpdateProduct = async () => {
+    if (!editingProductId) return;
+    try {
+      await updateFinalProductMutation({
+        kitFinalProductId: editingProductId,
+        supplierId: productForm.supplierId || undefined,
+        pricePerUnit: productForm.pricePerUnit ? parseFloat(productForm.pricePerUnit) : undefined,
+        weight: productForm.weight ? parseFloat(productForm.weight) : undefined,
+        moq: productForm.moq ? parseInt(productForm.moq) : undefined,
+        totalCost: productForm.totalCost ? parseFloat(productForm.totalCost) : undefined,
+        productionRound: productForm.productionRound || undefined,
+        notes: productForm.notes || undefined,
+      });
+      showToast('פריט עודכן', 'success');
+      setEditingProductId(null);
+      resetProductForm();
+    } catch { showToast('שגיאה בעדכון פריט', 'error'); }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    if (!(await confirm('האם למחוק פריט זה?'))) return;
+    await deleteFinalProductMutation({ kitFinalProductId: id });
+  };
+
+  const startEditProduct = (fp: Doc<'kitFinalProducts'>) => {
+    setEditingProductId(fp.kitFinalProductId);
+    setProductForm({
+      kitProductId: fp.kitProductId,
+      newProductName: '',
+      supplierId: fp.supplierId || '',
+      supplierSearch: fp.supplierId ? getSupplierName(fp.supplierId) : '',
+      pricePerUnit: fp.pricePerUnit?.toString() || '',
+      weight: fp.weight?.toString() || '',
+      moq: fp.moq?.toString() || '',
+      totalCost: fp.totalCost?.toString() || '',
+      productionRound: fp.productionRound || '',
+      notes: fp.notes || '',
+    });
+  };
+
+  // Cost handlers
+  const resetCostForm = () => setCostForm({ description: '', costType: 'fixed', amount: '', linkedProductIds: [], applyToAll: true, notes: '' });
+
+  const handleAddCost = async () => {
+    if (!costForm.description.trim() || !costForm.amount) return;
+    try {
+      await addCostMutation({
+        kitId,
+        description: costForm.description,
+        costType: costForm.costType,
+        amount: parseFloat(costForm.amount),
+        linkedProductIds: costForm.applyToAll ? undefined : costForm.linkedProductIds,
+        notes: costForm.notes || undefined,
+      });
+      showToast('עלות נוספה', 'success');
+      setShowAddCost(false);
+      resetCostForm();
+    } catch { showToast('שגיאה בהוספת עלות', 'error'); }
+  };
+
+  const handleUpdateCost = async () => {
+    if (!editingCostId || !costForm.amount) return;
+    try {
+      await updateCostMutation({
+        costId: editingCostId,
+        description: costForm.description,
+        costType: costForm.costType,
+        amount: parseFloat(costForm.amount),
+        linkedProductIds: costForm.applyToAll ? undefined : costForm.linkedProductIds,
+        notes: costForm.notes || undefined,
+      });
+      showToast('עלות עודכנה', 'success');
+      setEditingCostId(null);
+      resetCostForm();
+    } catch { showToast('שגיאה בעדכון עלות', 'error'); }
+  };
+
+  const handleDeleteCost = async (costId: string) => {
+    if (!(await confirm('האם למחוק עלות זו?'))) return;
+    await deleteCostMutation({ costId });
+  };
+
+  const startEditCost = (cost: Doc<'kitAdditionalCosts'>) => {
+    setEditingCostId(cost.costId);
+    setCostForm({
+      description: cost.description,
+      costType: cost.costType,
+      amount: cost.amount.toString(),
+      linkedProductIds: cost.linkedProductIds || [],
+      applyToAll: !cost.linkedProductIds || cost.linkedProductIds.length === 0,
+      notes: cost.notes || '',
+    });
+  };
+
+  const canAddProduct = productForm.kitProductId || productForm.newProductName.trim();
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900">קנייה סופית</h3>
+        <div className="flex gap-2">
+          <Button size="sm" variant="secondary" onClick={() => { setShowAddCost(true); resetCostForm(); }}>
+            <PlusIcon className="w-4 h-4" />
+            הוסף עלות
+          </Button>
+          <Button size="sm" onClick={() => { setShowAddProduct(true); resetProductForm(); }}>
+            <PlusIcon className="w-4 h-4" />
+            הוסף פריט
+          </Button>
+        </div>
+      </div>
+
+      {finalProducts.length === 0 && costs.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <p>אין פריטים בקנייה סופית עדיין.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50">
+                <th className="px-3 py-3 text-right font-medium text-gray-600">שם פריט</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">ספק</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">מחיר/יח ($)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">משקל (ג)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">MOQ</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">סבב ייצור</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">סה"כ ($)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600 w-[80px]">פעולות</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Product rows */}
+              {finalProducts.map((fp) => (
+                <tr key={fp.kitFinalProductId} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="px-3 py-3 font-medium text-gray-900">{getProductName(fp.kitProductId)}</td>
+                  <td className="px-3 py-3 text-gray-600">{getSupplierName(fp.supplierId)}</td>
+                  <td className="px-3 py-3 text-gray-900">{fp.pricePerUnit != null ? `$${formatNumber(fp.pricePerUnit, 3)}` : '-'}</td>
+                  <td className="px-3 py-3 text-gray-600">{fp.weight != null ? formatNumber(fp.weight, 0) : '-'}</td>
+                  <td className="px-3 py-3 text-gray-600">{fp.moq != null ? formatNumber(fp.moq, 0) : '-'}</td>
+                  <td className="px-3 py-3 text-gray-600">{fp.productionRound || '-'}</td>
+                  <td className="px-3 py-3 font-medium text-gray-900">{fp.totalCost != null ? `$${formatNumber(fp.totalCost)}` : '-'}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex gap-1">
+                      <button onClick={() => startEditProduct(fp)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                        <PencilIcon className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDeleteProduct(fp.kitFinalProductId)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors">
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+
+              {/* Subtotal row (only if there are costs) */}
+              {costs.length > 0 && finalProducts.length > 0 && (
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <td className="px-3 py-2 text-gray-500 font-medium">סה"כ מוצרים</td>
+                  <td colSpan={5} className="px-3 py-2"></td>
+                  <td className="px-3 py-2 text-gray-700 font-medium">${formatNumber(productsTotalCost)}</td>
+                  <td className="px-3 py-2"></td>
+                </tr>
+              )}
+
+              {/* Cost rows */}
+              {costs.map((cost) => {
+                const calculated = getCostCalculatedAmount(cost);
+                const label = cost.costType === 'percentage'
+                  ? `${cost.description} (${cost.amount}%)`
+                  : cost.description;
+                const scope = cost.linkedProductIds && cost.linkedProductIds.length > 0
+                  ? `${cost.linkedProductIds.length} מוצרים`
+                  : 'כל המוצרים';
+
+                return (
+                  <tr key={cost.costId} className="border-b border-gray-100 hover:bg-orange-50/30 bg-orange-50/20">
+                    <td className="px-3 py-3 font-medium text-orange-800">{label}</td>
+                    <td className="px-3 py-3 text-xs text-orange-600">{scope}</td>
+                    <td colSpan={4} className="px-3 py-3 text-gray-500 text-xs">{cost.notes || ''}</td>
+                    <td className="px-3 py-3 font-medium text-orange-800">${formatNumber(calculated)}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex gap-1">
+                        <button onClick={() => startEditCost(cost)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                          <PencilIcon className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDeleteCost(cost.costId)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors">
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-gray-100 font-semibold">
+                <td className="px-3 py-3 text-gray-900">סה"כ</td>
+                <td className="px-3 py-3"></td>
+                <td className="px-3 py-3 text-gray-900">${formatNumber(totalPricePerUnit, 3)}</td>
+                <td className="px-3 py-3 text-gray-900">{formatNumber(totalWeight, 0)}</td>
+                <td colSpan={2} className="px-3 py-3"></td>
+                <td className="px-3 py-3 text-gray-900">${formatNumber(grandTotal)}</td>
+                <td className="px-3 py-3"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {/* Add/Edit Product Modal */}
+      <Modal
+        isOpen={showAddProduct || !!editingProductId}
+        onClose={() => { setShowAddProduct(false); setEditingProductId(null); resetProductForm(); }}
+        title={editingProductId ? 'עריכת פריט' : 'הוסף פריט'}
+      >
+        <div className="space-y-4">
+          {!editingProductId && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">מוצר</label>
+              <select value={productForm.kitProductId} onChange={(e) => setProductForm({ ...productForm, kitProductId: e.target.value, newProductName: '' })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">בחר מוצר קיים...</option>
+                {products.map((p) => (<option key={p.kitProductId} value={p.kitProductId}>{p.name}</option>))}
+              </select>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs text-gray-400">או</span>
+                <input type="text" value={productForm.newProductName} onChange={(e) => setProductForm({ ...productForm, newProductName: e.target.value, kitProductId: '' })} className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" placeholder="הקלד שם מוצר חדש..." />
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">ספק <span className="text-gray-400 font-normal">(אופציונלי)</span></label>
+            <div className="relative">
+              <input type="text" value={productForm.supplierSearch} onChange={(e) => setProductForm({ ...productForm, supplierSearch: e.target.value, supplierId: '' })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="חפש ספק..." />
+              {productForm.supplierSearch && !productForm.supplierId && (
+                <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {filteredSupplierSuggestions.map((s) => (
+                    <button key={s.supplierId} onClick={() => setProductForm({ ...productForm, supplierId: s.supplierId, supplierSearch: s.name })} className="w-full text-right px-3 py-2 hover:bg-blue-50 text-sm">{s.name}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {productForm.supplierId && (
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-xs text-green-600">נבחר: {getSupplierName(productForm.supplierId)}</p>
+                <button onClick={() => setProductForm({ ...productForm, supplierId: '', supplierSearch: '' })} className="text-xs text-red-400 hover:text-red-600">הסר</button>
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input id="fpPricePerUnit" label="מחיר ליחידה ($)" type="number" value={productForm.pricePerUnit} onChange={(e) => setProductForm({ ...productForm, pricePerUnit: e.target.value })} />
+            <Input id="fpWeight" label="משקל (גרם)" type="number" value={productForm.weight} onChange={(e) => setProductForm({ ...productForm, weight: e.target.value })} />
+            <Input id="fpMoq" label="MOQ" type="number" value={productForm.moq} onChange={(e) => setProductForm({ ...productForm, moq: e.target.value })} />
+            <Input id="fpTotalCost" label='סה"כ עלות ($)' type="number" value={productForm.totalCost} onChange={(e) => setProductForm({ ...productForm, totalCost: e.target.value })} />
+          </div>
+          <Input id="fpRound" label="סבב ייצור" value={productForm.productionRound} onChange={(e) => setProductForm({ ...productForm, productionRound: e.target.value })} placeholder="לדוגמה: סבב ראשון" />
+          <Input id="fpNotes" label="הערות" value={productForm.notes} onChange={(e) => setProductForm({ ...productForm, notes: e.target.value })} />
+          <div className="flex justify-end gap-3 pt-4">
+            <Button variant="secondary" onClick={() => { setShowAddProduct(false); setEditingProductId(null); resetProductForm(); }}>ביטול</Button>
+            <Button onClick={editingProductId ? handleUpdateProduct : handleAddProduct} disabled={editingProductId ? false : !canAddProduct}>{editingProductId ? 'עדכן' : 'הוסף'}</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add/Edit Cost Modal */}
+      <Modal
+        isOpen={showAddCost || !!editingCostId}
+        onClose={() => { setShowAddCost(false); setEditingCostId(null); resetCostForm(); }}
+        title={editingCostId ? 'עריכת עלות' : 'הוסף עלות נוספת'}
+      >
+        <div className="space-y-4">
+          <Input id="costDesc" label="תיאור" value={costForm.description} onChange={(e) => setCostForm({ ...costForm, description: e.target.value })} placeholder="לדוגמה: משלוח, מכס, אריזה" required />
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">סוג עלות</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCostForm({ ...costForm, costType: 'fixed' })}
+                className={`flex-1 px-3 py-2 text-sm rounded-lg border transition-colors ${costForm.costType === 'fixed' ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+              >
+                סכום קבוע ($)
+              </button>
+              <button
+                onClick={() => setCostForm({ ...costForm, costType: 'percentage' })}
+                className={`flex-1 px-3 py-2 text-sm rounded-lg border transition-colors ${costForm.costType === 'percentage' ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+              >
+                אחוז (%)
+              </button>
+            </div>
+          </div>
+
+          <Input
+            id="costAmount"
+            label={costForm.costType === 'fixed' ? 'סכום ($)' : 'אחוז (%)'}
+            type="number"
+            step="0.01"
+            value={costForm.amount}
+            onChange={(e) => setCostForm({ ...costForm, amount: e.target.value })}
+            placeholder={costForm.costType === 'fixed' ? '500' : '10'}
+          />
+
+          {/* Apply to which products */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">חל על</label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" checked={costForm.applyToAll} onChange={() => setCostForm({ ...costForm, applyToAll: true, linkedProductIds: [] })} className="text-blue-600" />
+                <span className="text-sm">כל המוצרים</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" checked={!costForm.applyToAll} onChange={() => setCostForm({ ...costForm, applyToAll: false })} className="text-blue-600" />
+                <span className="text-sm">מוצרים נבחרים</span>
+              </label>
+            </div>
+            {!costForm.applyToAll && (
+              <div className="border rounded-lg p-3 mt-2 max-h-40 overflow-y-auto space-y-1.5">
+                {products.map((p) => (
+                  <label key={p.kitProductId} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={costForm.linkedProductIds.includes(p.kitProductId)}
+                      onChange={() => {
+                        const ids = costForm.linkedProductIds.includes(p.kitProductId)
+                          ? costForm.linkedProductIds.filter((id) => id !== p.kitProductId)
+                          : [...costForm.linkedProductIds, p.kitProductId];
+                        setCostForm({ ...costForm, linkedProductIds: ids });
+                      }}
+                      className="rounded border-gray-300 text-blue-600"
+                    />
+                    <span className="text-sm">{p.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Preview */}
+          {costForm.amount && (
+            <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
+              <span className="font-medium">תצוגה מקדימה: </span>
+              {costForm.costType === 'fixed'
+                ? `$${formatNumber(parseFloat(costForm.amount) || 0)}`
+                : `${costForm.amount}% = $${formatNumber(((parseFloat(costForm.amount) || 0) / 100) * (costForm.applyToAll ? productsTotalCost : finalProducts.filter((fp) => costForm.linkedProductIds.includes(fp.kitProductId)).reduce((s, fp) => s + (fp.totalCost || 0), 0)))}`
+              }
+            </div>
+          )}
+
+          <Input id="costNotes" label="הערות" value={costForm.notes} onChange={(e) => setCostForm({ ...costForm, notes: e.target.value })} />
+
+          <div className="flex justify-end gap-3 pt-4">
+            <Button variant="secondary" onClick={() => { setShowAddCost(false); setEditingCostId(null); resetCostForm(); }}>ביטול</Button>
+            <Button onClick={editingCostId ? handleUpdateCost : handleAddCost} disabled={!costForm.description.trim() || !costForm.amount}>{editingCostId ? 'עדכן' : 'הוסף'}</Button>
+          </div>
+        </div>
+      </Modal>
+      {ConfirmDialog}
+    </div>
+  );
+}

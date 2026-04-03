@@ -9,6 +9,7 @@ import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
+import { useConfirm } from '@/components/ui/useConfirm';
 import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 interface Cost {
@@ -76,6 +77,7 @@ export default function CostsTab({
   products,
 }: CostsTabProps) {
   const { showToast } = useToast();
+  const { confirm, ConfirmDialog } = useConfirm();
   const addCostMutation = useMutation(api.costs.addCost);
   const updateCostMutation = useMutation(api.costs.updateCost);
   const deleteCostMutation = useMutation(api.costs.deleteCost);
@@ -160,7 +162,7 @@ export default function CostsTab({
   };
 
   const handleDelete = async (costId: string) => {
-    if (!confirm('האם למחוק את העלות?')) return;
+    if (!(await confirm('האם למחוק את העלות?'))) return;
 
     try {
       await deleteCostMutation({ costId });
@@ -330,6 +332,7 @@ export default function CostsTab({
           </div>
         </div>
       </Modal>
+      {ConfirmDialog}
     </div>
   );
 }

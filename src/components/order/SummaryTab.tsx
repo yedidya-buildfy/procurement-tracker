@@ -9,6 +9,7 @@ import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import { useToast } from '@/components/ui/Toast';
+import { useConfirm } from '@/components/ui/useConfirm';
 import {
   PlusIcon,
   CheckCircleIcon,
@@ -75,6 +76,7 @@ export default function SummaryTab({
   products,
 }: SummaryTabProps) {
   const { showToast } = useToast();
+  const { confirm, ConfirmDialog } = useConfirm();
   const addOrderMilestoneMutation = useMutation(api.milestones.addOrderMilestone);
   const updateOrderMilestoneMutation = useMutation(api.milestones.updateOrderMilestone);
   const deleteOrderMilestoneMutation = useMutation(api.milestones.deleteOrderMilestone);
@@ -106,7 +108,7 @@ export default function SummaryTab({
   };
 
   const handleDeleteMilestone = async (milestoneId: string) => {
-    if (!confirm('האם למחוק את המיילסטון?')) return;
+    if (!(await confirm('האם למחוק את המיילסטון?'))) return;
 
     try {
       await deleteOrderMilestoneMutation({ milestoneId });
@@ -515,6 +517,7 @@ export default function SummaryTab({
           </div>
         </div>
       </Modal>
+      {ConfirmDialog}
     </div>
   );
 }

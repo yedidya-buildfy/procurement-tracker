@@ -1,0 +1,284 @@
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
+import { formatDate } from '@/lib/utils';
+import Button from '@/components/ui/Button';
+import Card from '@/components/ui/Card';
+import Spinner from '@/components/ui/Spinner';
+import Modal from '@/components/ui/Modal';
+import Input from '@/components/ui/Input';
+import ConfirmModal from '@/components/ui/ConfirmModal';
+import { useToast } from '@/components/ui/Toast';
+import {
+  PlusIcon,
+  MagnifyingGlassIcon,
+  BeakerIcon,
+  CubeIcon,
+  TrashIcon,
+  ArrowRightIcon,
+} from '@heroicons/react/24/outline';
+
+export default function KitsPage() {
+  const kits = useQuery(api.kits.getAllKits);
+  const createKitMutation = useMutation(api.kits.createKit);
+  const deleteKitMutation = useMutation(api.kits.deleteKit);
+
+  const [search, setSearch] = useState('');
+  const [showNewKit, setShowNewKit] = useState(false);
+  const [newKit, setNewKit] = useState({ name: '', notes: '' });
+  const [deleteKitId, setDeleteKitId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { showToast } = useToast();
+
+  const handleCreateKit = async () => {
+    if (!newKit.name.trim()) return;
+    try {
+      await createKitMutation({
+        name: newKit.name,
+        notes: newKit.notes || undefined,
+      });
+      showToast('ערכה נוצרה בהצלחה', 'success');
+      setShowNewKit(false);
+      setNewKit({ name: '', notes: '' });
+    } catch (error) {
+      console.error('Error creating kit:', error);
+      showToast('שגיאה ביצירת ערכה', 'error');
+    }
+  };
+
+  const confirmDeleteKit = async () => {
+    if (!deleteKitId) return;
+    setIsDeleting(true);
+    try {
+      await deleteKitMutation({ kitId: deleteKitId });
+      showToast('ערכה נמחקה בהצלחה', 'success');
+      setDeleteKitId(null);
+    } catch (error) {
+      console.error('Error deleting kit:', error);
+      showToast('שגיאה במחיקת ערכה', 'error');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const filteredKits = (kits || []).filter((kit) => {
+    return (
+      !search ||
+      kit.name.toLowerCase().includes(search.toLowerCase()) ||
+      kit.kitId.toLowerCase().includes(search.toLowerCase())
+    );
+  });
+
+  const kitToDelete = kits?.find((k) => k.kitId === deleteKitId);
+
+  if (kits === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen">
+      {/* Header */}
+      <header className="bg-white border-b sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Link href="/" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <ArrowRightIcon className="w-5 h-5 text-gray-600" />
+              </Link>
+              <Image src="/Logo.png" alt="Logo" width={40} height={40} />
+              <h1 className="text-2xl font-bold text-gray-900">ערכות ודוגמיות</h1>
+            </div>
+            <Button onClick={() => setShowNewKit(true)}>
+              <PlusIcon className="w-5 h-5" />
+              ערכה חדשה
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-6">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+          <Card>
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <CubeIcon className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">ערכות</p>
+                <p className="text-xl font-bold text-gray-900">{kits.length}</p>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <BeakerIcon className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">סה"כ דוגמיות</p>
+                <p className="text-xl font-bold text-gray-900">
+                  {kits.reduce((sum, k) => sum + k.totalSamples, 0)}
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <BeakerIcon className="w-6 h-6 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">דוגמיות ממתינות</p>
+                <p className="text-xl font-bold text-gray-900">
+                  {kits.reduce((sum, k) => sum + k.pendingSamples, 0)}
+                </p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Search */}
+        <div className="mb-6">
+          <div className="relative">
+            <MagnifyingGlassIcon className="w-5 h-5 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="חיפוש ערכה..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        {/* Kits Grid */}
+        {filteredKits.length === 0 ? (
+          <Card className="text-center py-12">
+            <CubeIcon className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+            <p className="text-gray-500">
+              {kits.length === 0 ? 'אין ערכות עדיין' : 'לא נמצאו ערכות'}
+            </p>
+            {kits.length === 0 && (
+              <Button className="mt-4" onClick={() => setShowNewKit(true)}>
+                <PlusIcon className="w-5 h-5" />
+                צור ערכה ראשונה
+              </Button>
+            )}
+          </Card>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {filteredKits.map((kit) => (
+              <Link key={kit.kitId} href={`/kits/${kit.kitId}`}>
+                <Card className="hover:shadow-md hover:border-blue-200 transition-all cursor-pointer">
+                  <div className="flex items-center gap-6">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 truncate">{kit.name}</h3>
+                      <p className="text-sm text-gray-500">{kit.kitId}</p>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <CubeIcon className="w-4 h-4 text-gray-400" />
+                      <span>{kit.productCount} מוצרים</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <BeakerIcon className="w-4 h-4 text-gray-400" />
+                      <span>{kit.totalSamples} דוגמיות</span>
+                    </div>
+
+                    {kit.pendingSamples > 0 && (
+                      <div className="text-sm">
+                        <span className="text-orange-600 font-medium">
+                          {kit.pendingSamples} ממתינות
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="text-sm text-gray-500">
+                      {formatDate(kit.createdDate)}
+                    </div>
+
+                    <span
+                      className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        kit.status === 'פעיל'
+                          ? 'bg-green-100 text-green-700'
+                          : kit.status === 'הושלם'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      {kit.status}
+                    </span>
+
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDeleteKitId(kit.kitId);
+                      }}
+                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="מחק ערכה"
+                    >
+                      <TrashIcon className="w-5 h-5" />
+                    </button>
+                  </div>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        )}
+      </main>
+
+      {/* New Kit Modal */}
+      <Modal isOpen={showNewKit} onClose={() => setShowNewKit(false)} title="ערכה חדשה">
+        <div className="space-y-4">
+          <Input
+            id="kitName"
+            label="שם הערכה"
+            value={newKit.name}
+            onChange={(e) => setNewKit({ ...newKit, name: e.target.value })}
+            placeholder="לדוגמה: ערכת ניקוי מקלחת"
+            required
+          />
+          <Input
+            id="kitNotes"
+            label="הערות"
+            value={newKit.notes}
+            onChange={(e) => setNewKit({ ...newKit, notes: e.target.value })}
+          />
+          <div className="flex justify-end gap-3 pt-4">
+            <Button variant="secondary" onClick={() => setShowNewKit(false)}>
+              ביטול
+            </Button>
+            <Button onClick={handleCreateKit} disabled={!newKit.name.trim()}>
+              צור ערכה
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <ConfirmModal
+        isOpen={!!deleteKitId}
+        onClose={() => setDeleteKitId(null)}
+        onConfirm={confirmDeleteKit}
+        title="מחיקת ערכה"
+        message={`האם אתה בטוח שברצונך למחוק את הערכה "${kitToDelete?.name || ''}"? פעולה זו תמחק את כל המוצרים, הדוגמיות והנתונים הקשורים ולא ניתן לבטל אותה.`}
+        confirmText="מחק ערכה"
+        cancelText="ביטול"
+        variant="danger"
+        isLoading={isDeleting}
+      />
+    </div>
+  );
+}

@@ -123,6 +123,97 @@ export default defineSchema({
     .index("by_productId", ["productId"])
     .index("by_milestoneId", ["milestoneId"]),
 
+  // Kits & Samples
+  kits: defineTable({
+    kitId: v.string(),
+    name: v.string(),
+    status: v.string(),
+    notes: v.optional(v.string()),
+    createdDate: v.string(),
+  })
+    .index("by_kitId", ["kitId"]),
+
+  kitProducts: defineTable({
+    kitProductId: v.string(),
+    kitId: v.string(),
+    name: v.string(),
+    category: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  })
+    .index("by_kitId", ["kitId"])
+    .index("by_kitProductId", ["kitProductId"]),
+
+  samples: defineTable({
+    sampleId: v.string(),
+    kitProductId: v.string(),
+    supplierId: v.string(),
+    sampleCost: v.optional(v.number()),
+    paid: v.boolean(),
+    shippingMethod: v.optional(v.string()),
+    rating: v.optional(v.number()),
+    ratingNotes: v.optional(v.string()),
+    isRelevant: v.optional(v.boolean()),
+    currentStage: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    createdDate: v.string(),
+  })
+    .index("by_kitProductId", ["kitProductId"])
+    .index("by_sampleId", ["sampleId"])
+    .index("by_supplierId", ["supplierId"]),
+
+  sampleMilestones: defineTable({
+    milestoneId: v.string(),
+    sampleId: v.string(),
+    name: v.string(),
+    targetDate: v.optional(v.string()),
+    actualDate: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  })
+    .index("by_sampleId", ["sampleId"])
+    .index("by_milestoneId", ["milestoneId"]),
+
+  sampleTrackingNumbers: defineTable({
+    sampleId: v.string(),
+    leg: v.string(),
+    trackingNumber: v.string(),
+    carrier: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  })
+    .index("by_sampleId", ["sampleId"]),
+
+  sampleImages: defineTable({
+    sampleId: v.string(),
+    storageId: v.id("_storage"),
+    caption: v.optional(v.string()),
+  })
+    .index("by_sampleId", ["sampleId"]),
+
+  kitAdditionalCosts: defineTable({
+    costId: v.string(),
+    kitId: v.string(),
+    description: v.string(),
+    costType: v.union(v.literal("fixed"), v.literal("percentage")),
+    amount: v.number(),
+    linkedProductIds: v.optional(v.array(v.string())),
+    notes: v.optional(v.string()),
+  })
+    .index("by_kitId", ["kitId"])
+    .index("by_costId", ["costId"]),
+
+  kitFinalProducts: defineTable({
+    kitFinalProductId: v.string(),
+    kitProductId: v.string(),
+    supplierId: v.optional(v.string()),
+    pricePerUnit: v.optional(v.number()),
+    weight: v.optional(v.number()),
+    moq: v.optional(v.number()),
+    totalCost: v.optional(v.number()),
+    productionRound: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  })
+    .index("by_kitProductId", ["kitProductId"])
+    .index("by_kitFinalProductId", ["kitFinalProductId"]),
+
   suppliers: defineTable({
     supplierId: v.string(),
     name: v.string(),

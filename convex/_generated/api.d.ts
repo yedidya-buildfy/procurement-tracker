@@ -10,6 +10,7 @@
 
 import type * as costs from "../costs.js";
 import type * as helpers from "../helpers.js";
+import type * as kits from "../kits.js";
 import type * as milestones from "../milestones.js";
 import type * as orders from "../orders.js";
 import type * as payments from "../payments.js";
@@ -25,6 +26,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   costs: typeof costs;
   helpers: typeof helpers;
+  kits: typeof kits;
   milestones: typeof milestones;
   orders: typeof orders;
   payments: typeof payments;

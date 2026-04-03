@@ -10,6 +10,7 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Spinner from '@/components/ui/Spinner';
 import { useToast } from '@/components/ui/Toast';
+import { useConfirm } from '@/components/ui/useConfirm';
 import ProductsTab from '@/components/order/ProductsTab';
 import CostsTab from '@/components/order/CostsTab';
 import PaymentsTab from '@/components/order/PaymentsTab';
@@ -29,6 +30,7 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
   const { orderId } = use(params);
   const router = useRouter();
   const { showToast } = useToast();
+  const { confirm, ConfirmDialog } = useConfirm();
 
   const data = useQuery(api.orders.getOrderFull, { orderId });
   const updateOrderMutation = useMutation(api.orders.updateOrder);
@@ -69,7 +71,7 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
   };
 
   const handleDeleteOrder = async () => {
-    if (!confirm('האם אתה בטוח שברצונך למחוק את ההזמנה?')) return;
+    if (!(await confirm('האם אתה בטוח שברצונך למחוק את ההזמנה?'))) return;
 
     try {
       await deleteOrderMutation({ orderId });
@@ -271,6 +273,7 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
           </div>
         </div>
       </main>
+      {ConfirmDialog}
     </div>
   );
 }

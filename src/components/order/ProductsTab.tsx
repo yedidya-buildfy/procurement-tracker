@@ -9,6 +9,7 @@ import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
+import { useConfirm } from '@/components/ui/useConfirm';
 import {
   PlusIcon,
   MinusIcon,
@@ -126,6 +127,7 @@ export default function ProductsTab({
   productMilestones,
 }: ProductsTabProps) {
   const { showToast } = useToast();
+  const { confirm, ConfirmDialog } = useConfirm();
   const addProductMutation = useMutation(api.products.addProduct);
   const updateProductMutation = useMutation(api.products.updateProduct);
   const deleteProductMutation = useMutation(api.products.deleteProduct);
@@ -304,7 +306,7 @@ export default function ProductsTab({
   };
 
   const handleDelete = async (productId: string) => {
-    if (!confirm('האם למחוק את המוצר?')) return;
+    if (!(await confirm('האם למחוק את המוצר?'))) return;
 
     try {
       await deleteProductMutation({ productId });
@@ -356,7 +358,7 @@ export default function ProductsTab({
   };
 
   const handleDeleteMilestone = async (milestoneId: string) => {
-    if (!confirm('האם למחוק את המיילסטון?')) return;
+    if (!(await confirm('האם למחוק את המיילסטון?'))) return;
 
     try {
       await deleteProductMilestoneMutation({ milestoneId });
@@ -905,6 +907,7 @@ export default function ProductsTab({
           </div>
         </div>
       </Modal>
+      {ConfirmDialog}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
+import { useConfirm } from '@/components/ui/useConfirm';
 import {
   PlusIcon,
   PencilIcon,
@@ -100,6 +101,7 @@ export default function PaymentsTab({
   paymentCostLinks,
 }: PaymentsTabProps) {
   const { showToast } = useToast();
+  const { confirm, ConfirmDialog } = useConfirm();
   const addPaymentMutation = useMutation(api.payments.addPayment);
   const updatePaymentMutation = useMutation(api.payments.updatePayment);
   const updatePaymentLinksMutation = useMutation(api.payments.updatePaymentLinks);
@@ -232,7 +234,7 @@ export default function PaymentsTab({
   };
 
   const handleDelete = async (paymentId: string) => {
-    if (!confirm('האם למחוק את התשלום?')) return;
+    if (!(await confirm('האם למחוק את התשלום?'))) return;
 
     try {
       await deletePaymentMutation({ paymentId });
@@ -254,7 +256,7 @@ export default function PaymentsTab({
   };
 
   const handleDismiss = async (paymentId: string) => {
-    if (!confirm('האם לבטל את התשלום הממתין?')) return;
+    if (!(await confirm('האם לבטל את התשלום הממתין?'))) return;
 
     try {
       await dismissPaymentMutation({ paymentId });
@@ -544,6 +546,7 @@ export default function PaymentsTab({
           </div>
         </div>
       </Modal>
+      {ConfirmDialog}
     </div>
   );
 }
