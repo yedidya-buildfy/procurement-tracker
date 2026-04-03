@@ -52,7 +52,7 @@ function KitImageSlot({ kitId }: { kitId: string }) {
             <img
               src={images![0].url}
               alt=""
-              className="w-16 h-16 object-cover rounded-xl border border-gray-200 hover:border-blue-300 cursor-pointer"
+              className="w-20 h-14 object-cover rounded-xl border border-gray-200 hover:border-blue-300 cursor-pointer"
               onClick={(e) => { e.stopPropagation(); setLightbox(images![0].url); }}
             />
             <label
@@ -76,7 +76,7 @@ function KitImageSlot({ kitId }: { kitId: string }) {
           </div>
         ) : (
           <label
-            className="w-16 h-16 flex items-center justify-center border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+            className="w-20 h-14 flex items-center justify-center border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
             onClick={(e) => e.stopPropagation()}
           >
             <PhotoIcon className="w-6 h-6 text-gray-300" />
