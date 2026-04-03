@@ -339,6 +339,11 @@ export default function FinalPurchaseTab({
 
   const isImage = (fileType: string) => fileType.startsWith('image/');
 
+  const fmt = (n: number | undefined | null, decimals = 2) => {
+    if (n == null || n === 0) return '';
+    return `$${n.toFixed(decimals)}`;
+  };
+
   const handleExportCSV = () => {
     const headers = ['שם פריט', 'כמות', 'ספק', 'מחיר/יח ($)', 'סה"כ ($)', 'משקל/יח (ג)', 'משקל כולל (ג)', 'MOQ', 'סבב ייצור'];
     const rows = finalProducts.map((fp) => {
@@ -348,8 +353,8 @@ export default function FinalPurchaseTab({
         getProductName(fp.kitProductId),
         fp.quantity ?? '',
         getSupplierName(fp.supplierId),
-        fp.pricePerUnit ?? '',
-        total || '',
+        fmt(fp.pricePerUnit, 3),
+        fmt(total),
         fp.weight ?? '',
         totalWt || '',
         fp.moq ?? '',
@@ -360,10 +365,10 @@ export default function FinalPurchaseTab({
     for (const cost of costs) {
       const calculated = getCostCalculatedAmount(cost);
       const label = cost.costType === 'percentage' ? `${cost.description} (${cost.amount}%)` : cost.description;
-      rows.push([label, '', '', '', calculated, '', '', '', cost.notes || '']);
+      rows.push([label, '', '', '', fmt(calculated), '', '', '', cost.notes || '']);
     }
     // Totals
-    rows.push(['סה"כ', '', '', totalPricePerUnit, grandTotal, '', totalWeight, '', '']);
+    rows.push(['סה"כ', '', '', fmt(totalPricePerUnit, 3), fmt(grandTotal), '', totalWeight, '', '']);
 
     const BOM = '\uFEFF';
     const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
