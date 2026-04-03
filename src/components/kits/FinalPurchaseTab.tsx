@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { formatNumber } from '@/lib/utils';
@@ -20,6 +20,64 @@ import {
   ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 import { Doc, Id } from '../../../convex/_generated/dataModel';
+
+function DebouncedQuantityInput({
+  value,
+  onSave,
+  belowMoq,
+}: {
+  value: number | undefined | null;
+  onSave: (val: number | undefined) => void;
+  belowMoq: boolean;
+}) {
+  const [local, setLocal] = useState(value?.toString() ?? '');
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedRef = useRef(value);
+
+  // Sync from server only if not currently editing
+  useEffect(() => {
+    if (savedRef.current !== value) {
+      savedRef.current = value;
+      setLocal(value?.toString() ?? '');
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/[^0-9]/g, '');
+    setLocal(raw);
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      const parsed = raw ? parseInt(raw) : undefined;
+      savedRef.current = parsed ?? null;
+      onSave(parsed);
+    }, 600);
+  };
+
+  // Save on blur immediately
+  const handleBlur = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    const parsed = local ? parseInt(local) : undefined;
+    savedRef.current = parsed ?? null;
+    onSave(parsed);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={local}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      className={`w-full px-2 py-1.5 border rounded-lg text-center font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+        belowMoq
+          ? 'border-red-300 bg-red-50 text-red-700'
+          : 'border-gray-200 text-gray-900'
+      }`}
+      placeholder="-"
+    />
+  );
+}
 
 interface FinalProductFile {
   _id: string;
@@ -372,14 +430,10 @@ export default function FinalPurchaseTab({
                 <tr key={fp.kitFinalProductId} className={`border-b border-gray-100 hover:bg-gray-50 ${belowMoq ? 'bg-red-50' : ''}`}>
                   <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{getProductName(fp.kitProductId)}</td>
                   <td className="px-1 py-1">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={fp.quantity ?? ''}
-                      onChange={async (e) => {
-                        const raw = e.target.value.replace(/[^0-9]/g, '');
-                        const val = raw ? parseInt(raw) : undefined;
+                    <DebouncedQuantityInput
+                      value={fp.quantity}
+                      belowMoq={belowMoq}
+                      onSave={async (val) => {
                         const newTotal = val && fp.pricePerUnit ? val * fp.pricePerUnit : undefined;
                         await updateFinalProductMutation({
                           kitFinalProductId: fp.kitFinalProductId,
@@ -387,12 +441,6 @@ export default function FinalPurchaseTab({
                           totalCost: newTotal,
                         });
                       }}
-                      className={`w-full px-2 py-1.5 border rounded-lg text-center font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                        belowMoq
-                          ? 'border-red-300 bg-red-50 text-red-700'
-                          : 'border-gray-200 text-gray-900'
-                      }`}
-                      placeholder="-"
                     />
                   </td>
                   <td className="px-3 py-3 text-gray-600">{getSupplierName(fp.supplierId)}</td>
