@@ -287,7 +287,27 @@ export default function FinalPurchaseTab({
                 return (
                 <tr key={fp.kitFinalProductId} className={`border-b border-gray-100 hover:bg-gray-50 ${belowMoq ? 'bg-red-50' : ''}`}>
                   <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{getProductName(fp.kitProductId)}</td>
-                  <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{fp.quantity != null ? formatNumber(fp.quantity, 0) : '-'}</td>
+                  <td className="px-1 py-1">
+                    <input
+                      type="number"
+                      value={fp.quantity ?? ''}
+                      onChange={async (e) => {
+                        const val = e.target.value ? parseInt(e.target.value) : undefined;
+                        const newTotal = val && fp.pricePerUnit ? val * fp.pricePerUnit : undefined;
+                        await updateFinalProductMutation({
+                          kitFinalProductId: fp.kitFinalProductId,
+                          quantity: val,
+                          totalCost: newTotal,
+                        });
+                      }}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-center font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        belowMoq
+                          ? 'border-red-300 bg-red-50 text-red-700'
+                          : 'border-gray-200 text-gray-900'
+                      }`}
+                      placeholder="-"
+                    />
+                  </td>
                   <td className="px-3 py-3 text-gray-600">{getSupplierName(fp.supplierId)}</td>
                   <td className="px-3 py-3 text-gray-900">{fp.pricePerUnit != null ? `$${formatNumber(fp.pricePerUnit, 3)}` : '-'}</td>
                   <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{rowTotal > 0 ? `$${formatNumber(rowTotal)}` : '-'}</td>
