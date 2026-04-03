@@ -345,10 +345,10 @@ export default function FinalPurchaseTab({
   };
 
   const handleExportCSV = () => {
-    const headers = ['שם פריט', 'כמות', 'ספק', 'מחיר/יח ($)', 'סה"כ ($)', 'משקל/יח (ג)', 'משקל כולל (ג)', 'MOQ', 'סבב ייצור'];
+    const headers = ['שם פריט', 'כמות', 'ספק', 'מחיר/יח ($)', 'סה"כ ($)', 'משקל/יח (ג)', 'משקל כולל (ק"ג)', 'MOQ', 'סבב ייצור'];
     const rows = finalProducts.map((fp) => {
       const total = getRowTotal(fp);
-      const totalWt = (fp.weight || 0) * (fp.quantity || 0);
+      const totalWt = ((fp.weight || 0) * (fp.quantity || 0)) / 1000;
       return [
         getProductName(fp.kitProductId),
         fp.quantity ?? '',
@@ -368,7 +368,7 @@ export default function FinalPurchaseTab({
       rows.push([label, '', '', '', fmt(calculated), '', '', '', cost.notes || '']);
     }
     // Totals
-    rows.push(['סה"כ', '', '', fmt(totalPricePerUnit, 3), fmt(grandTotal), '', totalWeight, '', '']);
+    rows.push(['סה"כ', '', '', fmt(totalPricePerUnit, 3), fmt(grandTotal), '', (totalWeight / 1000).toFixed(1), '', '']);
 
     const BOM = '\uFEFF';
     const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
@@ -419,7 +419,7 @@ export default function FinalPurchaseTab({
                 <th className="px-3 py-3 text-right font-medium text-gray-600">מחיר/יח ($)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">סה"כ ($)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">משקל/יח (ג)</th>
-                <th className="px-3 py-3 text-right font-medium text-gray-600">משקל כולל (ג)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">משקל כולל (ק"ג)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">MOQ</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">סבב ייצור</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">קבצים</th>
@@ -452,7 +452,7 @@ export default function FinalPurchaseTab({
                   <td className="px-3 py-3 text-gray-900">{fp.pricePerUnit != null ? `$${formatNumber(fp.pricePerUnit, 3)}` : '-'}</td>
                   <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{rowTotal > 0 ? `$${formatNumber(rowTotal)}` : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.weight != null ? formatNumber(fp.weight, 0) : '-'}</td>
-                  <td className="px-3 py-3 text-gray-600">{fp.weight != null && fp.quantity != null ? formatNumber(fp.weight * fp.quantity, 0) : '-'}</td>
+                  <td className="px-3 py-3 text-gray-600">{fp.weight != null && fp.quantity != null ? formatNumber((fp.weight * fp.quantity) / 1000, 1) : '-'}</td>
                   <td className={`px-3 py-3 ${belowMoq ? 'text-red-700 font-medium' : 'text-gray-600'}`}>{fp.moq != null ? formatNumber(fp.moq, 0) : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.productionRound || '-'}</td>
                   {/* Files */}
@@ -568,7 +568,7 @@ export default function FinalPurchaseTab({
                 <td className="px-3 py-3 text-gray-900">${formatNumber(totalPricePerUnit, 3)}</td>
                 <td className="px-3 py-3 text-gray-900">${formatNumber(grandTotal)}</td>
                 <td className="px-3 py-3"></td>
-                <td className="px-3 py-3 text-gray-900">{formatNumber(totalWeight, 0)}</td>
+                <td className="px-3 py-3 text-gray-900">{formatNumber(totalWeight / 1000, 1)}</td>
                 <td colSpan={3} className="px-3 py-3"></td>
                 <td className="px-3 py-3"></td>
               </tr>
