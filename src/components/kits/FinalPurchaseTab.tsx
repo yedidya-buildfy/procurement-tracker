@@ -597,20 +597,21 @@ export default function FinalPurchaseTab({
             </div>
             {!costForm.applyToAll && (
               <div className="border rounded-lg p-3 mt-2 max-h-40 overflow-y-auto space-y-1.5">
-                {products.map((p) => (
-                  <label key={p.kitProductId} className="flex items-center gap-2 cursor-pointer">
+                {/* Show unique products from final purchase table */}
+                {Array.from(new Set(finalProducts.map((fp) => fp.kitProductId))).map((kpId) => (
+                  <label key={kpId} className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={costForm.linkedProductIds.includes(p.kitProductId)}
+                      checked={costForm.linkedProductIds.includes(kpId)}
                       onChange={() => {
-                        const ids = costForm.linkedProductIds.includes(p.kitProductId)
-                          ? costForm.linkedProductIds.filter((id) => id !== p.kitProductId)
-                          : [...costForm.linkedProductIds, p.kitProductId];
+                        const ids = costForm.linkedProductIds.includes(kpId)
+                          ? costForm.linkedProductIds.filter((id) => id !== kpId)
+                          : [...costForm.linkedProductIds, kpId];
                         setCostForm({ ...costForm, linkedProductIds: ids });
                       }}
                       className="rounded border-gray-300 text-blue-600"
                     />
-                    <span className="text-sm">{p.name}</span>
+                    <span className="text-sm">{getProductName(kpId)}</span>
                   </label>
                 ))}
               </div>
