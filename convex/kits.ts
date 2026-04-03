@@ -578,6 +578,7 @@ export const addKitFinalProduct = mutation({
   args: {
     kitProductId: v.string(),
     supplierId: v.optional(v.string()),
+    quantity: v.optional(v.number()),
     pricePerUnit: v.optional(v.number()),
     weight: v.optional(v.number()),
     moq: v.optional(v.number()),
@@ -592,6 +593,7 @@ export const addKitFinalProduct = mutation({
       kitFinalProductId,
       kitProductId: args.kitProductId,
       supplierId: args.supplierId,
+      quantity: args.quantity,
       pricePerUnit: args.pricePerUnit,
       weight: args.weight,
       moq: args.moq,
@@ -608,6 +610,7 @@ export const updateKitFinalProduct = mutation({
   args: {
     kitFinalProductId: v.string(),
     supplierId: v.optional(v.string()),
+    quantity: v.optional(v.number()),
     pricePerUnit: v.optional(v.number()),
     weight: v.optional(v.number()),
     moq: v.optional(v.number()),
@@ -625,6 +628,7 @@ export const updateKitFinalProduct = mutation({
 
     const updates: Record<string, unknown> = {};
     if (args.supplierId !== undefined) updates.supplierId = args.supplierId;
+    if (args.quantity !== undefined) updates.quantity = args.quantity;
     if (args.pricePerUnit !== undefined) updates.pricePerUnit = args.pricePerUnit;
     if (args.weight !== undefined) updates.weight = args.weight;
     if (args.moq !== undefined) updates.moq = args.moq;

@@ -51,10 +51,10 @@ export default function FinalPurchaseTab({
     newProductName: '',
     supplierId: '',
     supplierSearch: '',
+    quantity: '',
     pricePerUnit: '',
     weight: '',
     moq: '',
-    totalCost: '',
     productionRound: '',
     notes: '',
   });
@@ -86,7 +86,12 @@ export default function FinalPurchaseTab({
   );
 
   // Calculate cost amounts
-  const productsTotalCost = finalProducts.reduce((sum, fp) => sum + (fp.totalCost || 0), 0);
+  const getRowTotal = (fp: Doc<'kitFinalProducts'>) => {
+    const qty = fp.quantity || 0;
+    const ppu = fp.pricePerUnit || 0;
+    return qty && ppu ? qty * ppu : (fp.totalCost || 0);
+  };
+  const productsTotalCost = finalProducts.reduce((sum, fp) => sum + getRowTotal(fp), 0);
 
   const getCostCalculatedAmount = (cost: Doc<'kitAdditionalCosts'>) => {
     if (cost.costType === 'fixed') return cost.amount;
@@ -106,7 +111,7 @@ export default function FinalPurchaseTab({
   const totalPricePerUnit = finalProducts.reduce((sum, fp) => sum + (fp.pricePerUnit || 0), 0);
 
   // Product handlers
-  const resetProductForm = () => setProductForm({ kitProductId: '', newProductName: '', supplierId: '', supplierSearch: '', pricePerUnit: '', weight: '', moq: '', totalCost: '', productionRound: '', notes: '' });
+  const resetProductForm = () => setProductForm({ kitProductId: '', newProductName: '', supplierId: '', supplierSearch: '', quantity: '', pricePerUnit: '', weight: '', moq: '', productionRound: '', notes: '' });
 
   const handleAddProduct = async () => {
     let productId = productForm.kitProductId;
@@ -117,13 +122,17 @@ export default function FinalPurchaseTab({
     }
     if (!productId) return;
     try {
+      const qty = productForm.quantity ? parseFloat(productForm.quantity) : undefined;
+      const ppu = productForm.pricePerUnit ? parseFloat(productForm.pricePerUnit) : undefined;
+      const total = qty && ppu ? qty * ppu : undefined;
       await addFinalProductMutation({
         kitProductId: productId,
         supplierId: productForm.supplierId || undefined,
-        pricePerUnit: productForm.pricePerUnit ? parseFloat(productForm.pricePerUnit) : undefined,
+        quantity: qty,
+        pricePerUnit: ppu,
         weight: productForm.weight ? parseFloat(productForm.weight) : undefined,
         moq: productForm.moq ? parseInt(productForm.moq) : undefined,
-        totalCost: productForm.totalCost ? parseFloat(productForm.totalCost) : undefined,
+        totalCost: total,
         productionRound: productForm.productionRound || undefined,
         notes: productForm.notes || undefined,
       });
@@ -136,13 +145,17 @@ export default function FinalPurchaseTab({
   const handleUpdateProduct = async () => {
     if (!editingProductId) return;
     try {
+      const qty = productForm.quantity ? parseFloat(productForm.quantity) : undefined;
+      const ppu = productForm.pricePerUnit ? parseFloat(productForm.pricePerUnit) : undefined;
+      const total = qty && ppu ? qty * ppu : undefined;
       await updateFinalProductMutation({
         kitFinalProductId: editingProductId,
         supplierId: productForm.supplierId || undefined,
-        pricePerUnit: productForm.pricePerUnit ? parseFloat(productForm.pricePerUnit) : undefined,
+        quantity: qty,
+        pricePerUnit: ppu,
         weight: productForm.weight ? parseFloat(productForm.weight) : undefined,
         moq: productForm.moq ? parseInt(productForm.moq) : undefined,
-        totalCost: productForm.totalCost ? parseFloat(productForm.totalCost) : undefined,
+        totalCost: total,
         productionRound: productForm.productionRound || undefined,
         notes: productForm.notes || undefined,
       });
@@ -164,10 +177,10 @@ export default function FinalPurchaseTab({
       newProductName: '',
       supplierId: fp.supplierId || '',
       supplierSearch: fp.supplierId ? getSupplierName(fp.supplierId) : '',
+      quantity: fp.quantity?.toString() || '',
       pricePerUnit: fp.pricePerUnit?.toString() || '',
       weight: fp.weight?.toString() || '',
       moq: fp.moq?.toString() || '',
-      totalCost: fp.totalCost?.toString() || '',
       productionRound: fp.productionRound || '',
       notes: fp.notes || '',
     });
@@ -255,26 +268,31 @@ export default function FinalPurchaseTab({
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="px-3 py-3 text-right font-medium text-gray-600">שם פריט</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600 w-[80px]">כמות</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">ספק</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">מחיר/יח ($)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">סה"כ ($)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">משקל (ג)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">MOQ</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">סבב ייצור</th>
-                <th className="px-3 py-3 text-right font-medium text-gray-600">סה"כ ($)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600 w-[80px]">פעולות</th>
               </tr>
             </thead>
             <tbody>
               {/* Product rows */}
-              {finalProducts.map((fp) => (
-                <tr key={fp.kitFinalProductId} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="px-3 py-3 font-medium text-gray-900">{getProductName(fp.kitProductId)}</td>
+              {finalProducts.map((fp) => {
+                const rowTotal = getRowTotal(fp);
+                const belowMoq = fp.quantity != null && fp.moq != null && fp.quantity < fp.moq;
+                return (
+                <tr key={fp.kitFinalProductId} className={`border-b border-gray-100 hover:bg-gray-50 ${belowMoq ? 'bg-red-50' : ''}`}>
+                  <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{getProductName(fp.kitProductId)}</td>
+                  <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{fp.quantity != null ? formatNumber(fp.quantity, 0) : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{getSupplierName(fp.supplierId)}</td>
                   <td className="px-3 py-3 text-gray-900">{fp.pricePerUnit != null ? `$${formatNumber(fp.pricePerUnit, 3)}` : '-'}</td>
+                  <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{rowTotal > 0 ? `$${formatNumber(rowTotal)}` : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.weight != null ? formatNumber(fp.weight, 0) : '-'}</td>
-                  <td className="px-3 py-3 text-gray-600">{fp.moq != null ? formatNumber(fp.moq, 0) : '-'}</td>
+                  <td className={`px-3 py-3 ${belowMoq ? 'text-red-700 font-medium' : 'text-gray-600'}`}>{fp.moq != null ? formatNumber(fp.moq, 0) : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.productionRound || '-'}</td>
-                  <td className="px-3 py-3 font-medium text-gray-900">{fp.totalCost != null ? `$${formatNumber(fp.totalCost)}` : '-'}</td>
                   <td className="px-3 py-3">
                     <div className="flex gap-1">
                       <button onClick={() => startEditProduct(fp)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
@@ -286,15 +304,16 @@ export default function FinalPurchaseTab({
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
 
               {/* Subtotal row (only if there are costs) */}
               {costs.length > 0 && finalProducts.length > 0 && (
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <td className="px-3 py-2 text-gray-500 font-medium">סה"כ מוצרים</td>
-                  <td colSpan={5} className="px-3 py-2"></td>
+                  <td colSpan={3} className="px-3 py-2"></td>
                   <td className="px-3 py-2 text-gray-700 font-medium">${formatNumber(productsTotalCost)}</td>
-                  <td className="px-3 py-2"></td>
+                  <td colSpan={4} className="px-3 py-2"></td>
                 </tr>
               )}
 
@@ -311,9 +330,11 @@ export default function FinalPurchaseTab({
                 return (
                   <tr key={cost.costId} className="border-b border-gray-100 hover:bg-orange-50/30 bg-orange-50/20">
                     <td className="px-3 py-3 font-medium text-orange-800">{label}</td>
+                    <td className="px-3 py-3"></td>
                     <td className="px-3 py-3 text-xs text-orange-600">{scope}</td>
-                    <td colSpan={4} className="px-3 py-3 text-gray-500 text-xs">{cost.notes || ''}</td>
+                    <td className="px-3 py-3"></td>
                     <td className="px-3 py-3 font-medium text-orange-800">${formatNumber(calculated)}</td>
+                    <td colSpan={3} className="px-3 py-3 text-gray-500 text-xs">{cost.notes || ''}</td>
                     <td className="px-3 py-3">
                       <div className="flex gap-1">
                         <button onClick={() => startEditCost(cost)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
@@ -332,10 +353,11 @@ export default function FinalPurchaseTab({
               <tr className="bg-gray-100 font-semibold">
                 <td className="px-3 py-3 text-gray-900">סה"כ</td>
                 <td className="px-3 py-3"></td>
+                <td className="px-3 py-3"></td>
                 <td className="px-3 py-3 text-gray-900">${formatNumber(totalPricePerUnit, 3)}</td>
+                <td className="px-3 py-3 text-gray-900">${formatNumber(grandTotal)}</td>
                 <td className="px-3 py-3 text-gray-900">{formatNumber(totalWeight, 0)}</td>
                 <td colSpan={2} className="px-3 py-3"></td>
-                <td className="px-3 py-3 text-gray-900">${formatNumber(grandTotal)}</td>
                 <td className="px-3 py-3"></td>
               </tr>
             </tfoot>
@@ -382,11 +404,21 @@ export default function FinalPurchaseTab({
               </div>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
+            <Input id="fpQuantity" label="כמות" type="number" value={productForm.quantity} onChange={(e) => setProductForm({ ...productForm, quantity: e.target.value })} />
             <Input id="fpPricePerUnit" label="מחיר ליחידה ($)" type="number" value={productForm.pricePerUnit} onChange={(e) => setProductForm({ ...productForm, pricePerUnit: e.target.value })} />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">סה"כ ($)</label>
+              <p className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 font-medium">
+                {productForm.quantity && productForm.pricePerUnit
+                  ? `$${formatNumber(parseFloat(productForm.quantity) * parseFloat(productForm.pricePerUnit))}`
+                  : '-'}
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
             <Input id="fpWeight" label="משקל (גרם)" type="number" value={productForm.weight} onChange={(e) => setProductForm({ ...productForm, weight: e.target.value })} />
             <Input id="fpMoq" label="MOQ" type="number" value={productForm.moq} onChange={(e) => setProductForm({ ...productForm, moq: e.target.value })} />
-            <Input id="fpTotalCost" label='סה"כ עלות ($)' type="number" value={productForm.totalCost} onChange={(e) => setProductForm({ ...productForm, totalCost: e.target.value })} />
           </div>
           <Input id="fpRound" label="סבב ייצור" value={productForm.productionRound} onChange={(e) => setProductForm({ ...productForm, productionRound: e.target.value })} placeholder="לדוגמה: סבב ראשון" />
           <Input id="fpNotes" label="הערות" value={productForm.notes} onChange={(e) => setProductForm({ ...productForm, notes: e.target.value })} />

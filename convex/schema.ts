@@ -205,6 +205,7 @@ export default defineSchema({
     kitFinalProductId: v.string(),
     kitProductId: v.string(),
     supplierId: v.optional(v.string()),
+    quantity: v.optional(v.number()),
     pricePerUnit: v.optional(v.number()),
     weight: v.optional(v.number()),
     moq: v.optional(v.number()),
