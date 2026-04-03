@@ -87,12 +87,21 @@ interface FinalProductFile {
   fileType: string;
 }
 
+interface CostFile {
+  _id: string;
+  costId: string;
+  url: string | null;
+  fileName: string;
+  fileType: string;
+}
+
 interface FinalPurchaseTabProps {
   kitId: string;
   products: Doc<'kitProducts'>[];
   finalProducts: Doc<'kitFinalProducts'>[];
   finalProductFiles: FinalProductFile[];
   costs: Doc<'kitAdditionalCosts'>[];
+  costFiles: CostFile[];
   suppliers: Doc<'suppliers'>[];
   allSuppliers: Doc<'suppliers'>[];
 }
@@ -103,6 +112,7 @@ export default function FinalPurchaseTab({
   finalProducts,
   finalProductFiles,
   costs,
+  costFiles,
   suppliers,
   allSuppliers,
 }: FinalPurchaseTabProps) {
@@ -115,6 +125,8 @@ export default function FinalPurchaseTab({
   const addCostMutation = useMutation(api.kits.addKitCost);
   const updateCostMutation = useMutation(api.kits.updateKitCost);
   const deleteCostMutation = useMutation(api.kits.deleteKitCost);
+  const addCostFileMutation = useMutation(api.kits.addCostFile);
+  const deleteCostFileMutation = useMutation(api.kits.deleteCostFile);
   const generateUploadUrlMutation = useMutation(api.kits.generateUploadUrl);
   const addFileMutation = useMutation(api.kits.addFinalProductFile);
   const deleteFileMutation = useMutation(api.kits.deleteFinalProductFile);
@@ -146,6 +158,7 @@ export default function FinalPurchaseTab({
     amount: '',
     linkedProductIds: [] as string[],
     applyToAll: true,
+    leadTime: '',
     notes: '',
   });
 
@@ -265,7 +278,7 @@ export default function FinalPurchaseTab({
   };
 
   // Cost handlers
-  const resetCostForm = () => setCostForm({ description: '', costType: 'fixed', amount: '', linkedProductIds: [], applyToAll: true, notes: '' });
+  const resetCostForm = () => setCostForm({ description: '', costType: 'fixed', amount: '', linkedProductIds: [], applyToAll: true, leadTime: '', notes: '' });
 
   const handleAddCost = async () => {
     if (!costForm.description.trim() || !costForm.amount) return;
@@ -276,6 +289,7 @@ export default function FinalPurchaseTab({
         costType: costForm.costType,
         amount: parseFloat(costForm.amount),
         linkedProductIds: costForm.applyToAll ? undefined : costForm.linkedProductIds,
+        leadTime: costForm.leadTime || undefined,
         notes: costForm.notes || undefined,
       });
       showToast('עלות נוספה', 'success');
@@ -293,6 +307,7 @@ export default function FinalPurchaseTab({
         costType: costForm.costType,
         amount: parseFloat(costForm.amount),
         linkedProductIds: costForm.applyToAll ? undefined : costForm.linkedProductIds,
+        leadTime: costForm.leadTime || undefined,
         notes: costForm.notes || undefined,
       });
       showToast('עלות עודכנה', 'success');
@@ -314,6 +329,7 @@ export default function FinalPurchaseTab({
       amount: cost.amount.toString(),
       linkedProductIds: cost.linkedProductIds || [],
       applyToAll: !cost.linkedProductIds || cost.linkedProductIds.length === 0,
+      leadTime: cost.leadTime || '',
       notes: cost.notes || '',
     });
   };
@@ -335,6 +351,22 @@ export default function FinalPurchaseTab({
 
   const handleDeleteFile = async (fileId: string) => {
     await deleteFileMutation({ id: fileId as Id<'kitFinalProductFiles'> });
+  };
+
+  const handleUploadCostFile = async (costId: string, files: FileList) => {
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const uploadUrl = await generateUploadUrlMutation();
+        const result = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
+        const { storageId } = await result.json();
+        await addCostFileMutation({ costId, storageId, fileName: file.name, fileType: file.type });
+      }
+    } catch { showToast('שגיאה בהעלאת קבצים', 'error'); }
+  };
+
+  const handleDeleteCostFile = async (fileId: string) => {
+    await deleteCostFileMutation({ id: fileId as Id<'kitCostFiles'> });
   };
 
   const isImage = (fileType: string) => fileType.startsWith('image/');
@@ -545,7 +577,34 @@ export default function FinalPurchaseTab({
                     <td className="px-3 py-3 text-xs text-orange-600">{scope}</td>
                     <td className="px-3 py-3"></td>
                     <td className="px-3 py-3 font-medium text-orange-800">${formatNumber(calculated)}</td>
-                    <td colSpan={5} className="px-3 py-3 text-gray-500 text-xs">{cost.notes || ''}</td>
+                    <td colSpan={2} className="px-3 py-3"></td>
+                    <td className="px-3 py-3 text-gray-600 text-xs">{cost.leadTime || '-'}</td>
+                    {/* Cost Files */}
+                    <td className="px-2 py-2">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {costFiles
+                          .filter((f) => f.costId === cost.costId)
+                          .map((file) => (
+                            <div key={file._id} className="relative group/cf">
+                              {isImage(file.fileType) && file.url ? (
+                                <img src={file.url} alt={file.fileName} className="w-8 h-8 object-cover rounded cursor-pointer border border-gray-200 hover:border-blue-300" onClick={() => setLightboxUrl(file.url)} />
+                              ) : (
+                                <a href={file.url || '#'} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-1.5 py-1 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600 hover:bg-blue-50" title={file.fileName}>
+                                  <DocumentIcon className="w-3.5 h-3.5" />
+                                  <span className="truncate max-w-[60px]">{file.fileName.split('.').pop()}</span>
+                                </a>
+                              )}
+                              <button onClick={() => handleDeleteCostFile(file._id)} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/cf:opacity-100 transition-opacity">
+                                <XMarkIcon className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          ))}
+                        <label className="flex items-center justify-center w-8 h-8 border border-dashed border-gray-300 rounded cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                          <PaperClipIcon className="w-4 h-4 text-gray-400" />
+                          <input type="file" accept="image/*,.pdf,.xlsx,.xls,.doc,.docx,.csv" multiple onChange={(e) => { if (e.target.files) handleUploadCostFile(cost.costId, e.target.files); e.target.value = ''; }} className="hidden" />
+                        </label>
+                      </div>
+                    </td>
                     <td className="px-3 py-3">
                       <div className="flex gap-1">
                         <button onClick={() => startEditCost(cost)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
@@ -725,6 +784,7 @@ export default function FinalPurchaseTab({
             </div>
           )}
 
+          <Input id="costLeadTime" label="Lead Time" value={costForm.leadTime} onChange={(e) => setCostForm({ ...costForm, leadTime: e.target.value })} placeholder="לדוגמה: 25 ימים" />
           <Input id="costNotes" label="הערות" value={costForm.notes} onChange={(e) => setCostForm({ ...costForm, notes: e.target.value })} />
 
           <div className="flex justify-end gap-3 pt-4">

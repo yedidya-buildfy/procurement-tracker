@@ -202,9 +202,18 @@ export default defineSchema({
     costType: v.union(v.literal("fixed"), v.literal("percentage")),
     amount: v.number(),
     linkedProductIds: v.optional(v.array(v.string())),
+    leadTime: v.optional(v.string()),
     notes: v.optional(v.string()),
   })
     .index("by_kitId", ["kitId"])
+    .index("by_costId", ["costId"]),
+
+  kitCostFiles: defineTable({
+    costId: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    fileType: v.string(),
+  })
     .index("by_costId", ["costId"]),
 
   kitFinalProductFiles: defineTable({

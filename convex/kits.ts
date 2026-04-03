@@ -135,11 +135,23 @@ export const getKitFull = query({
       if (supplier) suppliers.push(supplier);
     }
 
-    // Get additional costs
+    // Get additional costs and their files
     const costs = await ctx.db
       .query("kitAdditionalCosts")
       .withIndex("by_kitId", (q) => q.eq("kitId", kitId))
       .collect();
+
+    const allCostFiles: { _id: string; costId: string; url: string | null; fileName: string; fileType: string }[] = [];
+    for (const cost of costs) {
+      const files = await ctx.db
+        .query("kitCostFiles")
+        .withIndex("by_costId", (q) => q.eq("costId", cost.costId))
+        .collect();
+      for (const f of files) {
+        const url = await ctx.storage.getUrl(f.storageId);
+        allCostFiles.push({ _id: f._id as string, costId: f.costId, url, fileName: f.fileName, fileType: f.fileType });
+      }
+    }
 
     return {
       kit,
@@ -151,6 +163,7 @@ export const getKitFull = query({
       finalProducts: allFinalProducts,
       finalProductFiles: allFinalProductFiles,
       costs,
+      costFiles: allCostFiles,
       suppliers,
     };
   },
@@ -687,6 +700,7 @@ export const addKitCost = mutation({
     costType: v.union(v.literal("fixed"), v.literal("percentage")),
     amount: v.number(),
     linkedProductIds: v.optional(v.array(v.string())),
+    leadTime: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -698,6 +712,7 @@ export const addKitCost = mutation({
       costType: args.costType,
       amount: args.amount,
       linkedProductIds: args.linkedProductIds,
+      leadTime: args.leadTime,
       notes: args.notes,
     });
     return costId;
@@ -711,6 +726,7 @@ export const updateKitCost = mutation({
     costType: v.optional(v.union(v.literal("fixed"), v.literal("percentage"))),
     amount: v.optional(v.number()),
     linkedProductIds: v.optional(v.array(v.string())),
+    leadTime: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -725,6 +741,7 @@ export const updateKitCost = mutation({
     if (args.costType !== undefined) updates.costType = args.costType;
     if (args.amount !== undefined) updates.amount = args.amount;
     if (args.linkedProductIds !== undefined) updates.linkedProductIds = args.linkedProductIds;
+    if (args.leadTime !== undefined) updates.leadTime = args.leadTime;
     if (args.notes !== undefined) updates.notes = args.notes;
 
     await ctx.db.patch(cost._id, updates);
@@ -742,6 +759,34 @@ export const deleteKitCost = mutation({
     if (!cost) return false;
     await ctx.db.delete(cost._id);
     return true;
+  },
+});
+
+// Kit Cost Files
+export const addCostFile = mutation({
+  args: {
+    costId: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    fileType: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("kitCostFiles", {
+      costId: args.costId,
+      storageId: args.storageId,
+      fileName: args.fileName,
+      fileType: args.fileType,
+    });
+  },
+});
+
+export const deleteCostFile = mutation({
+  args: { id: v.id("kitCostFiles") },
+  handler: async (ctx, { id }) => {
+    const file = await ctx.db.get(id);
+    if (!file) return;
+    await ctx.storage.delete(file.storageId);
+    await ctx.db.delete(id);
   },
 });
 
