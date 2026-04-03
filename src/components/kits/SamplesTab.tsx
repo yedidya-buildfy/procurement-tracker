@@ -625,8 +625,8 @@ export default function SamplesTab({
                   <SortHeader label="תמונה" sortKey="images" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-[72px] px-2" />
                   <SortHeader label="ספק" sortKey="supplier" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="px-3" />
                   <SortHeader label="עלות" sortKey="cost" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-[70px] px-3" />
-                  <SortHeader label="דירוג" sortKey="rating" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-[100px] px-2" center />
                   <SortHeader label="איפה הדוגמית" sortKey="stage" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="px-3" />
+                  <SortHeader label="דירוג" sortKey="rating" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-[100px] px-2" center />
                   <th className="px-3 py-2.5 text-right font-medium text-gray-600 whitespace-nowrap">הערות</th>
                   <th className="px-2 py-2.5 text-center font-medium text-gray-600 whitespace-nowrap w-[100px]">פעולות</th>
                 </tr>
@@ -737,31 +737,6 @@ export default function SamplesTab({
                           {sample.sampleCost != null && sample.sampleCost > 0 ? `$${sample.sampleCost}` : '-'}
                         </td>
 
-                        {/* Rating */}
-                        <td className="px-2 py-2">
-                          <button
-                            onClick={() => {
-                              setShowRatingModal(sample.sampleId);
-                              setRatingValue(sample.rating || 0);
-                              setRatingNotes(sample.ratingNotes || '');
-                            }}
-                            className="flex items-center gap-0.5 mx-auto hover:bg-gray-100 rounded px-1 py-0.5 transition-colors"
-                          >
-                            {[1, 2, 3, 4, 5].map((star) =>
-                              star <= (sample.rating || 0) ? (
-                                <StarSolid key={star} className="w-3.5 h-3.5 text-yellow-400" />
-                              ) : (
-                                <StarOutline key={star} className="w-3.5 h-3.5 text-gray-300" />
-                              )
-                            )}
-                          </button>
-                          {sample.ratingNotes && (
-                            <p className="text-xs text-gray-500 mt-0.5 text-center max-w-[100px] truncate mx-auto" title={sample.ratingNotes}>
-                              {sample.ratingNotes}
-                            </p>
-                          )}
-                        </td>
-
                         {/* Where is the sample */}
                         <td className="px-3 py-2">
                           <div className="space-y-1.5">
@@ -799,6 +774,31 @@ export default function SamplesTab({
                           </div>
                         </td>
 
+
+                        {/* Rating */}
+                        <td className="px-2 py-2">
+                          <button
+                            onClick={() => {
+                              setShowRatingModal(sample.sampleId);
+                              setRatingValue(sample.rating || 0);
+                              setRatingNotes(sample.ratingNotes || '');
+                            }}
+                            className="flex items-center gap-0.5 mx-auto hover:bg-gray-100 rounded px-1 py-0.5 transition-colors"
+                          >
+                            {[1, 2, 3, 4, 5].map((star) =>
+                              star <= (sample.rating || 0) ? (
+                                <StarSolid key={star} className="w-3.5 h-3.5 text-yellow-400" />
+                              ) : (
+                                <StarOutline key={star} className="w-3.5 h-3.5 text-gray-300" />
+                              )
+                            )}
+                          </button>
+                          {sample.ratingNotes && (
+                            <p className="text-xs text-gray-500 mt-0.5 text-center max-w-[100px] truncate mx-auto" title={sample.ratingNotes}>
+                              {sample.ratingNotes}
+                            </p>
+                          )}
+                        </td>
 
                         {/* Notes */}
                         <td className="px-3 py-2 text-xs text-gray-600 max-w-[250px]">
