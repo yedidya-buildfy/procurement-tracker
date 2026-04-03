@@ -553,8 +553,7 @@ export default function FinalPurchaseTab({
               {/* Subtotal row (only if there are costs) */}
               {costs.length > 0 && finalProducts.length > 0 && (
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <td className="px-3 py-2 text-gray-500 font-medium">סה"כ מוצרים</td>
-                  <td colSpan={3} className="px-3 py-2"></td>
+                  <td className="px-3 py-2 text-gray-500 font-medium" colSpan={4}>סה"כ מוצרים</td>
                   <td className="px-3 py-2 text-gray-700 font-medium">${formatNumber(productsTotalCost)}</td>
                   <td colSpan={6} className="px-3 py-2"></td>
                 </tr>
@@ -572,14 +571,25 @@ export default function FinalPurchaseTab({
 
                 return (
                   <tr key={cost.costId} className="border-b border-gray-100 hover:bg-orange-50/30 bg-orange-50/20">
+                    {/* שם פריט */}
                     <td className="px-3 py-3 font-medium text-orange-800">{label}</td>
+                    {/* כמות */}
                     <td className="px-3 py-3"></td>
+                    {/* ספק */}
                     <td className="px-3 py-3 text-xs text-orange-600">{scope}</td>
+                    {/* מחיר/יח */}
                     <td className="px-3 py-3"></td>
+                    {/* סה"כ */}
                     <td className="px-3 py-3 font-medium text-orange-800">${formatNumber(calculated)}</td>
-                    <td colSpan={2} className="px-3 py-3"></td>
+                    {/* משקל/יח */}
+                    <td className="px-3 py-3"></td>
+                    {/* משקל כולל */}
+                    <td className="px-3 py-3 text-gray-500 text-xs">{cost.notes || ''}</td>
+                    {/* MOQ */}
+                    <td className="px-3 py-3"></td>
+                    {/* Lead Time */}
                     <td className="px-3 py-3 text-gray-600 text-xs">{cost.leadTime || '-'}</td>
-                    {/* Cost Files */}
+                    {/* קבצים */}
                     <td className="px-2 py-2">
                       <div className="flex items-center gap-1 flex-wrap">
                         {costFiles
@@ -628,7 +638,9 @@ export default function FinalPurchaseTab({
                 <td className="px-3 py-3 text-gray-900">${formatNumber(grandTotal)}</td>
                 <td className="px-3 py-3"></td>
                 <td className="px-3 py-3 text-gray-900">{formatNumber(totalWeight / 1000, 1)}</td>
-                <td colSpan={3} className="px-3 py-3"></td>
+                <td className="px-3 py-3"></td>
+                <td className="px-3 py-3"></td>
+                <td className="px-3 py-3"></td>
                 <td className="px-3 py-3"></td>
               </tr>
             </tfoot>
