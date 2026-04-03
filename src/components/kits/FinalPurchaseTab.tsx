@@ -345,7 +345,7 @@ export default function FinalPurchaseTab({
   };
 
   const handleExportCSV = () => {
-    const headers = ['שם פריט', 'כמות', 'ספק', 'מחיר/יח ($)', 'סה"כ ($)', 'משקל/יח (ג)', 'משקל כולל (ק"ג)', 'MOQ', 'סבב ייצור'];
+    const headers = ['שם פריט', 'כמות', 'ספק', 'מחיר/יח ($)', 'סה"כ ($)', 'משקל/יח (ג)', 'משקל כולל (ק"ג)', 'MOQ', 'Lead Time'];
     const rows = finalProducts.map((fp) => {
       const total = getRowTotal(fp);
       const totalWt = ((fp.weight || 0) * (fp.quantity || 0)) / 1000;
@@ -421,7 +421,7 @@ export default function FinalPurchaseTab({
                 <th className="px-3 py-3 text-right font-medium text-gray-600">משקל/יח (ג)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">משקל כולל (ק"ג)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">MOQ</th>
-                <th className="px-3 py-3 text-right font-medium text-gray-600">סבב ייצור</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">Lead Time</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">קבצים</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600 w-[80px]">פעולות</th>
               </tr>
@@ -632,7 +632,7 @@ export default function FinalPurchaseTab({
             <Input id="fpWeight" label="משקל (גרם)" type="number" value={productForm.weight} onChange={(e) => setProductForm({ ...productForm, weight: e.target.value })} />
             <Input id="fpMoq" label="MOQ" type="number" value={productForm.moq} onChange={(e) => setProductForm({ ...productForm, moq: e.target.value })} />
           </div>
-          <Input id="fpRound" label="סבב ייצור" value={productForm.productionRound} onChange={(e) => setProductForm({ ...productForm, productionRound: e.target.value })} placeholder="לדוגמה: סבב ראשון" />
+          <Input id="fpRound" label="Lead Time" value={productForm.productionRound} onChange={(e) => setProductForm({ ...productForm, productionRound: e.target.value })} placeholder="לדוגמה: 25 ימים" />
           <Input id="fpNotes" label="הערות" value={productForm.notes} onChange={(e) => setProductForm({ ...productForm, notes: e.target.value })} />
           <div className="flex justify-end gap-3 pt-4">
             <Button variant="secondary" onClick={() => { setShowAddProduct(false); setEditingProductId(null); resetProductForm(); }}>ביטול</Button>
