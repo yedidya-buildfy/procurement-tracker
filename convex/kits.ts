@@ -255,6 +255,16 @@ export const deleteKit = mutation({
       .collect();
     for (const cost of costs) await ctx.db.delete(cost._id);
 
+    // Delete kit images
+    const kitImages = await ctx.db
+      .query("kitImages")
+      .withIndex("by_kitId", (q) => q.eq("kitId", kitId))
+      .collect();
+    for (const img of kitImages) {
+      await ctx.storage.delete(img.storageId);
+      await ctx.db.delete(img._id);
+    }
+
     await ctx.db.delete(kit._id);
     return true;
   },
@@ -732,6 +742,38 @@ export const deleteKitCost = mutation({
     if (!cost) return false;
     await ctx.db.delete(cost._id);
     return true;
+  },
+});
+
+// Kit Images
+export const addKitImage = mutation({
+  args: { kitId: v.string(), storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("kitImages", { kitId: args.kitId, storageId: args.storageId });
+  },
+});
+
+export const deleteKitImage = mutation({
+  args: { id: v.id("kitImages") },
+  handler: async (ctx, { id }) => {
+    const img = await ctx.db.get(id);
+    if (!img) return;
+    await ctx.storage.delete(img.storageId);
+    await ctx.db.delete(id);
+  },
+});
+
+export const getKitImages = query({
+  args: { kitId: v.string() },
+  handler: async (ctx, { kitId }) => {
+    const images = await ctx.db
+      .query("kitImages")
+      .withIndex("by_kitId", (q) => q.eq("kitId", kitId))
+      .collect();
+    return Promise.all(images.map(async (img) => ({
+      _id: img._id,
+      url: await ctx.storage.getUrl(img.storageId),
+    })));
   },
 });
 

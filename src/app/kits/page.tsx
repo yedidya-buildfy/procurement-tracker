@@ -23,7 +23,71 @@ import {
   PencilIcon,
   CheckIcon,
   XMarkIcon,
+  PhotoIcon,
 } from '@heroicons/react/24/outline';
+import { Id } from '../../../convex/_generated/dataModel';
+
+function KitImageSlot({ kitId }: { kitId: string }) {
+  const images = useQuery(api.kits.getKitImages, { kitId });
+  const generateUploadUrl = useMutation(api.kits.generateUploadUrl);
+  const addImage = useMutation(api.kits.addKitImage);
+  const deleteImage = useMutation(api.kits.deleteKitImage);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+
+  const handleUpload = async (files: FileList) => {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const url = await generateUploadUrl();
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
+      const { storageId } = await res.json();
+      await addImage({ kitId, storageId });
+    }
+  };
+
+  return (
+    <>
+      <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.preventDefault()}>
+        {(images || []).map((img) =>
+          img.url ? (
+            <div key={img._id} className="relative group/ki">
+              <img
+                src={img.url}
+                alt=""
+                className="w-10 h-10 object-cover rounded-lg border border-gray-200 hover:border-blue-300 cursor-pointer"
+                onClick={() => setLightbox(img.url)}
+              />
+              <button
+                onClick={() => deleteImage({ id: img._id as Id<'kitImages'> })}
+                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/ki:opacity-100 transition-opacity"
+              >
+                <XMarkIcon className="w-2.5 h-2.5" />
+              </button>
+            </div>
+          ) : null
+        )}
+        <label className="w-10 h-10 flex items-center justify-center border border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+          <PhotoIcon className="w-4 h-4 text-gray-400" />
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => { if (e.target.files) handleUpload(e.target.files); e.target.value = ''; }}
+            className="hidden"
+          />
+        </label>
+      </div>
+
+      {lightbox && (
+        <>
+          <div className="fixed inset-0 bg-black/80 z-40" onClick={() => setLightbox(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+            <img src={lightbox} alt="" className="max-w-full max-h-[90vh] object-contain rounded-lg" />
+          </div>
+        </>
+      )}
+    </>
+  );
+}
 
 export default function KitsPage() {
   const kits = useQuery(api.kits.getAllKits);
@@ -188,6 +252,7 @@ export default function KitsPage() {
               <div key={kit.kitId}>
                 <Card className="hover:shadow-md hover:border-blue-200 transition-all">
                   <div className="flex items-center gap-6">
+                    <KitImageSlot kitId={kit.kitId} />
                     <div className="flex-1 min-w-0">
                       {editingKitId === kit.kitId ? (
                         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>

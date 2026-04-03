@@ -133,6 +133,12 @@ export default defineSchema({
   })
     .index("by_kitId", ["kitId"]),
 
+  kitImages: defineTable({
+    kitId: v.string(),
+    storageId: v.id("_storage"),
+  })
+    .index("by_kitId", ["kitId"]),
+
   kitProducts: defineTable({
     kitProductId: v.string(),
     kitId: v.string(),
