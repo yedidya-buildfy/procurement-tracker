@@ -179,10 +179,19 @@ export default function KitsPage() {
               <Image src="/Logo.png" alt="Logo" width={40} height={40} />
               <h1 className="text-2xl font-bold text-gray-900">ערכות ודוגמיות</h1>
             </div>
-            <Button onClick={() => setShowNewKit(true)}>
-              <PlusIcon className="w-5 h-5" />
-              ערכה חדשה
-            </Button>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/kits/tracking-search"
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 hover:text-blue-700 hover:bg-blue-50 border border-gray-300 rounded-lg transition-colors"
+              >
+                <MagnifyingGlassIcon className="w-4 h-4" />
+                חיפוש מעקב
+              </Link>
+              <Button onClick={() => setShowNewKit(true)}>
+                <PlusIcon className="w-5 h-5" />
+                ערכה חדשה
+              </Button>
+            </div>
           </div>
         </div>
       </header>

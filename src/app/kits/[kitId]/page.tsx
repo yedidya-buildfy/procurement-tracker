@@ -18,6 +18,8 @@ import {
   TrashIcon,
   BeakerIcon,
   CubeIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 type TabId = 'samples' | 'final';
@@ -35,6 +37,7 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
   const deleteKitMutation = useMutation(api.kits.deleteKit);
 
   const [activeTab, setActiveTab] = useState<TabId>('samples');
+  const [kitSearch, setKitSearch] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editedKit, setEditedKit] = useState<{
     name?: string;
@@ -213,7 +216,7 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
         {/* Tabs */}
         <div className="bg-white rounded-xl shadow-sm border">
           <div className="border-b">
-            <nav className="flex gap-1 p-1">
+            <nav className="flex items-center gap-1 p-1">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
@@ -227,6 +230,26 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
                   {tab.label}
                 </button>
               ))}
+              <div className="mr-auto flex items-center gap-1.5">
+                <div className="relative">
+                  <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={kitSearch}
+                    onChange={(e) => setKitSearch(e.target.value)}
+                    placeholder="חפש בערכה..."
+                    className="pr-8 pl-7 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 w-52"
+                  />
+                  {kitSearch && (
+                    <button
+                      onClick={() => setKitSearch('')}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      <XMarkIcon className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </nav>
           </div>
 
@@ -242,6 +265,7 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
                 suppliers={suppliers}
                 allSuppliers={allSuppliers}
                 allKits={(allKitsRaw || []).map((k) => ({ kitId: k.kitId, name: k.name }))}
+                kitSearch={kitSearch}
               />
             )}
             {activeTab === 'final' && (
@@ -254,6 +278,13 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
                 costFiles={costFiles}
                 suppliers={suppliers}
                 allSuppliers={allSuppliers}
+                kitSearch={kitSearch}
+                samples={samples}
+                sampleImages={sampleImages}
+                targetKitCount={kit.targetKitCount}
+                onUpdateTargetKitCount={async (count) => {
+                  await updateKitMutation({ kitId, targetKitCount: count });
+                }}
               />
             )}
           </div>

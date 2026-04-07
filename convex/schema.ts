@@ -130,6 +130,7 @@ export default defineSchema({
     status: v.string(),
     notes: v.optional(v.string()),
     createdDate: v.string(),
+    targetKitCount: v.optional(v.number()),
   })
     .index("by_kitId", ["kitId"]),
 
@@ -186,7 +187,8 @@ export default defineSchema({
     carrier: v.optional(v.string()),
     notes: v.optional(v.string()),
   })
-    .index("by_sampleId", ["sampleId"]),
+    .index("by_sampleId", ["sampleId"])
+    .searchIndex("search_trackingNumber", { searchField: "trackingNumber" }),
 
   sampleImages: defineTable({
     sampleId: v.string(),
@@ -229,8 +231,14 @@ export default defineSchema({
     kitProductId: v.string(),
     supplierId: v.optional(v.string()),
     quantity: v.optional(v.number()),
+    quantityPerKit: v.optional(v.number()),
     pricePerUnit: v.optional(v.number()),
     weight: v.optional(v.number()),
+    volume: v.optional(v.number()),
+    dimHeight: v.optional(v.number()),
+    dimWidth: v.optional(v.number()),
+    dimLength: v.optional(v.number()),
+    isBox: v.optional(v.boolean()),
     moq: v.optional(v.number()),
     totalCost: v.optional(v.number()),
     productionRound: v.optional(v.string()),

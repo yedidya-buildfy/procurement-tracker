@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation } from 'convex/react';
+import { useState, useMemo } from 'react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { formatDate } from '@/lib/utils';
 import Button from '@/components/ui/Button';
@@ -10,6 +10,7 @@ import Input from '@/components/ui/Input';
 import { useToast } from '@/components/ui/Toast';
 import { useConfirm } from '@/components/ui/useConfirm';
 import StagePill from './StagePill';
+import Link from 'next/link';
 import { SAMPLE_STAGES } from '@/lib/sampleStages';
 import {
   PlusIcon,
@@ -26,6 +27,8 @@ import {
   ClipboardDocumentIcon,
   ArchiveBoxIcon,
   ArchiveBoxXMarkIcon,
+  MagnifyingGlassIcon,
+  AdjustmentsHorizontalIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarSolid } from '@heroicons/react/24/solid';
 import { Doc, Id } from '../../../convex/_generated/dataModel';
@@ -78,6 +81,7 @@ interface SamplesTabProps {
   suppliers: Doc<'suppliers'>[];
   allSuppliers: Doc<'suppliers'>[];
   allKits: KitSummary[];
+  kitSearch?: string;
 }
 
 export default function SamplesTab({
@@ -90,6 +94,7 @@ export default function SamplesTab({
   suppliers,
   allSuppliers,
   allKits,
+  kitSearch = '',
 }: SamplesTabProps) {
   const { showToast } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
@@ -102,6 +107,9 @@ export default function SamplesTab({
   const moveProductMutation = useMutation(api.kits.moveProductToKit);
   const addTrackingMutation = useMutation(api.kits.addTrackingNumber);
   const deleteTrackingMutation = useMutation(api.kits.deleteTrackingNumber);
+  const bulkUpdateStageMutation = useMutation(api.kits.bulkUpdateSampleStage);
+  const bulkDeleteMutation = useMutation(api.kits.bulkDeleteSamples);
+  const addSupplierMutation = useMutation(api.suppliers.addSupplier);
   const generateUploadUrlMutation = useMutation(api.kits.generateUploadUrl);
   const addImageMutation = useMutation(api.kits.addSampleImage);
   const deleteImageMutation = useMutation(api.kits.deleteSampleImage);
@@ -146,6 +154,17 @@ export default function SamplesTab({
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
+  // Tracking search
+  const [trackingSearch, setTrackingSearch] = useState('');
+  const trackingSearchResults = useQuery(
+    api.kits.searchTrackingNumbers,
+    trackingSearch.trim().length >= 2 ? { searchTerm: trackingSearch.trim() } : 'skip'
+  );
+
+  // Selection & bulk actions
+  const [selectedSampleIds, setSelectedSampleIds] = useState<Set<string>>(new Set());
+  const [bulkStageValue, setBulkStageValue] = useState<number>(0);
+
   const activeProduct = products.find((p) => p.kitProductId === activeProductId);
 
   const getSupplierName = (supplierId: string) => {
@@ -163,15 +182,60 @@ export default function SamplesTab({
     }
   };
 
+  // Tracking search: matched sample IDs (tracking number OR supplier name)
+  const trackingMatchedSampleIds = useMemo(() => {
+    const term = trackingSearch.trim().toLowerCase();
+    if (!term) return null;
+
+    const matched = new Set<string>();
+
+    // Match by tracking number (from Convex search)
+    if (trackingSearchResults) {
+      for (const t of trackingSearchResults) matched.add(t.sampleId);
+    }
+
+    // Match by supplier name (client-side)
+    const allSups = [...suppliers, ...allSuppliers];
+    for (const sample of samples) {
+      const sup = allSups.find((s) => s.supplierId === sample.supplierId);
+      if (sup && sup.name.toLowerCase().includes(term)) {
+        matched.add(sample.sampleId);
+      }
+    }
+
+    return matched;
+  }, [trackingSearch, trackingSearchResults, samples, suppliers, allSuppliers]);
+
+  // Kit-wide search: match sample by supplier, notes, tracking, cost
+  const kitSearchMatched = useMemo(() => {
+    const term = kitSearch.trim().toLowerCase();
+    if (!term) return null;
+    const matched = new Set<string>();
+    const allSups = [...suppliers, ...allSuppliers];
+    for (const sample of samples) {
+      const sup = allSups.find((s) => s.supplierId === sample.supplierId);
+      if (sup && sup.name.toLowerCase().includes(term)) { matched.add(sample.sampleId); continue; }
+      if (sample.notes && sample.notes.toLowerCase().includes(term)) { matched.add(sample.sampleId); continue; }
+      if (sample.sampleCost != null && sample.sampleCost.toString().includes(term)) { matched.add(sample.sampleId); continue; }
+      if (sample.ratingNotes && sample.ratingNotes.toLowerCase().includes(term)) { matched.add(sample.sampleId); continue; }
+      const tracks = trackingNumbers.filter((t) => t.sampleId === sample.sampleId);
+      if (tracks.some((t) => t.trackingNumber.toLowerCase().includes(term))) { matched.add(sample.sampleId); continue; }
+    }
+    return matched;
+  }, [kitSearch, samples, suppliers, allSuppliers, trackingNumbers]);
+
   // Filter and sort samples
   const productSamplesAll = samples.filter((s) => s.kitProductId === activeProductId);
   const archivedCount = productSamplesAll.filter((s) => s.archived).length;
   const productSamplesRaw = productSamplesAll.filter((s) => showArchived || !s.archived);
   const productSamples = productSamplesRaw
     .filter((s) => {
-      if (starFilter === null) return true;
-      if (starFilter === 0) return !s.rating;
-      return s.rating === starFilter;
+      if (starFilter !== null) {
+        if (starFilter === 0 ? s.rating : s.rating !== starFilter) return false;
+      }
+      if (trackingMatchedSampleIds !== null && !trackingMatchedSampleIds.has(s.sampleId)) return false;
+      if (kitSearchMatched !== null && !kitSearchMatched.has(s.sampleId)) return false;
+      return true;
     })
     .sort((a, b) => {
       if (!sortKey) return 0;
@@ -405,6 +469,48 @@ export default function SamplesTab({
     await deleteImageMutation({ id: imageId as Id<'sampleImages'> });
   };
 
+  const toggleSelectSample = (sampleId: string) => {
+    setSelectedSampleIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sampleId)) next.delete(sampleId);
+      else next.add(sampleId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedSampleIds.size === productSamples.length) {
+      setSelectedSampleIds(new Set());
+    } else {
+      setSelectedSampleIds(new Set(productSamples.map((s) => s.sampleId)));
+    }
+  };
+
+  const handleBulkStageChange = async () => {
+    if (selectedSampleIds.size === 0) return;
+    try {
+      await bulkUpdateStageMutation({ sampleIds: Array.from(selectedSampleIds), currentStage: bulkStageValue });
+      showToast(`${selectedSampleIds.size} דוגמיות עודכנו`, 'success');
+      setSelectedSampleIds(new Set());
+    } catch (error) {
+      console.error('Error bulk updating stage:', error);
+      showToast('שגיאה בעדכון', 'error');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedSampleIds.size === 0) return;
+    if (!(await confirm(`האם למחוק ${selectedSampleIds.size} דוגמיות?`))) return;
+    try {
+      await bulkDeleteMutation({ sampleIds: Array.from(selectedSampleIds) });
+      showToast(`${selectedSampleIds.size} דוגמיות נמחקו`, 'success');
+      setSelectedSampleIds(new Set());
+    } catch (error) {
+      console.error('Error bulk deleting:', error);
+      showToast('שגיאה במחיקה', 'error');
+    }
+  };
+
   const buildWhatsAppText = (sample: Doc<'samples'>) => {
     const supplierName = getSupplierName(sample.supplierId);
     const tracks = trackingNumbers.filter((t) => t.sampleId === sample.sampleId);
@@ -565,6 +671,70 @@ export default function SamplesTab({
       {/* Table Content */}
       {activeProduct ? (
         <div className="bg-white">
+          {/* Tracking Search */}
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
+            <MagnifyingGlassIcon className="w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={trackingSearch}
+              onChange={(e) => setTrackingSearch(e.target.value)}
+              placeholder="חפש מספר מעקב או ספק..."
+              className="px-2 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 w-64"
+            />
+            {trackingSearch.trim() && (
+              <button onClick={() => setTrackingSearch('')} className="p-0.5 text-gray-400 hover:text-gray-600">
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            )}
+            {trackingMatchedSampleIds !== null && (
+              <span className="text-xs text-gray-400">{trackingMatchedSampleIds.size} תוצאות</span>
+            )}
+            <Link
+              href="/kits/tracking-search"
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors mr-auto"
+            >
+              <AdjustmentsHorizontalIcon className="w-4 h-4" />
+              חיפוש מתקדם
+            </Link>
+          </div>
+
+          {/* Bulk Actions Bar */}
+          {selectedSampleIds.size > 0 && (
+            <div className="flex items-center gap-3 px-3 py-2 border-b border-blue-200 bg-blue-50">
+              <span className="text-sm font-medium text-blue-700">{selectedSampleIds.size} נבחרו</span>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={bulkStageValue}
+                  onChange={(e) => setBulkStageValue(parseInt(e.target.value))}
+                  className="px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                >
+                  {SAMPLE_STAGES.map((stage) => (
+                    <option key={stage.id} value={stage.id}>{stage.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleBulkStageChange}
+                  className="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                >
+                  שנה שלב
+                </button>
+              </div>
+              <button
+                onClick={handleBulkDelete}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+              >
+                <TrashIcon className="w-3.5 h-3.5" />
+                מחק
+              </button>
+              <button
+                onClick={() => setSelectedSampleIds(new Set())}
+                className="text-xs text-gray-500 hover:text-gray-700 mr-auto"
+              >
+                בטל בחירה
+              </button>
+            </div>
+          )}
+
           {/* Star Filter Bar */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
             <FunnelIcon className="w-4 h-4 text-gray-400" />
@@ -622,6 +792,14 @@ export default function SamplesTab({
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="w-[40px] px-2 py-2.5 text-center">
+                    <input
+                      type="checkbox"
+                      checked={productSamples.length > 0 && selectedSampleIds.size === productSamples.length}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                  </th>
                   <SortHeader label="תמונה" sortKey="images" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-[72px] px-2" />
                   <SortHeader label="ספק" sortKey="supplier" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="px-3" />
                   <SortHeader label="עלות" sortKey="cost" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-[70px] px-3" />
@@ -634,8 +812,8 @@ export default function SamplesTab({
               <tbody>
                 {productSamples.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-8 text-center text-gray-400">
-                      {starFilter !== null ? 'אין דוגמיות תואמות לסינון' : 'אין דוגמיות למוצר זה'}
+                    <td colSpan={8} className="px-3 py-8 text-center text-gray-400">
+                      {starFilter !== null || trackingMatchedSampleIds !== null ? 'אין דוגמיות תואמות לסינון' : 'אין דוגמיות למוצר זה'}
                     </td>
                   </tr>
                 ) : (
@@ -646,8 +824,17 @@ export default function SamplesTab({
                     return (
                       <tr
                         key={sample.sampleId}
-                        className={`border-b border-gray-100 hover:bg-blue-50/30 ${sample.archived ? 'opacity-50' : ''}`}
+                        className={`border-b border-gray-100 hover:bg-blue-50/30 ${sample.archived ? 'opacity-50' : ''} ${selectedSampleIds.has(sample.sampleId) ? 'bg-blue-50/50' : ''}`}
                       >
+                        {/* Checkbox */}
+                        <td className="px-2 py-2 text-center align-middle">
+                          <input
+                            type="checkbox"
+                            checked={selectedSampleIds.has(sample.sampleId)}
+                            onChange={() => toggleSelectSample(sample.sampleId)}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                        </td>
                         {/* Image - first column, big */}
                         <td className="px-2 py-1 align-middle">
                           <div className="flex items-center gap-1">
@@ -934,7 +1121,23 @@ export default function SamplesTab({
                     {filteredSupplierSuggestions.map((s) => (
                       <button key={s.supplierId} onClick={() => setNewSample({ ...newSample, supplierId: s.supplierId, supplierSearch: s.name })} className="w-full text-right px-3 py-2 hover:bg-blue-50 text-sm">{s.name}</button>
                     ))}
-                    {filteredSupplierSuggestions.length === 0 && <p className="px-3 py-2 text-sm text-gray-400">לא נמצאו ספקים</p>}
+                    {filteredSupplierSuggestions.length === 0 && newSample.supplierSearch.trim() && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            const supplierId = await addSupplierMutation({ name: newSample.supplierSearch.trim() });
+                            setNewSample({ ...newSample, supplierId, supplierSearch: newSample.supplierSearch.trim() });
+                            showToast('ספק נוצר בהצלחה', 'success');
+                          } catch (error) {
+                            console.error('Error creating supplier:', error);
+                            showToast('שגיאה ביצירת ספק', 'error');
+                          }
+                        }}
+                        className="w-full text-right px-3 py-2 hover:bg-green-50 text-sm text-green-700 font-medium border-t border-gray-100"
+                      >
+                        + צור ספק חדש: &quot;{newSample.supplierSearch.trim()}&quot;
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

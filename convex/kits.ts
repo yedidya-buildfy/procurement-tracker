@@ -195,6 +195,7 @@ export const updateKit = mutation({
     name: v.optional(v.string()),
     status: v.optional(v.string()),
     notes: v.optional(v.string()),
+    targetKitCount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const kit = await ctx.db
@@ -208,6 +209,7 @@ export const updateKit = mutation({
     if (args.name !== undefined) updates.name = args.name;
     if (args.status !== undefined) updates.status = args.status;
     if (args.notes !== undefined) updates.notes = args.notes;
+    if (args.targetKitCount !== undefined) updates.targetKitCount = args.targetKitCount;
 
     await ctx.db.patch(kit._id, updates);
     return true;
@@ -610,14 +612,148 @@ export const deleteTrackingNumber = mutation({
   },
 });
 
+// Search tracking numbers
+export const searchTrackingNumbers = query({
+  args: { searchTerm: v.string() },
+  handler: async (ctx, { searchTerm }) => {
+    const results = await ctx.db
+      .query("sampleTrackingNumbers")
+      .withSearchIndex("search_trackingNumber", (q) =>
+        q.search("trackingNumber", searchTerm)
+      )
+      .collect();
+    return results;
+  },
+});
+
+// Get all tracking numbers with sample + product + kit info
+export const getAllTrackingNumbers = query({
+  args: {},
+  handler: async (ctx) => {
+    const allTracking = await ctx.db.query("sampleTrackingNumbers").collect();
+
+    const results = [];
+    for (const t of allTracking) {
+      const sample = await ctx.db
+        .query("samples")
+        .withIndex("by_sampleId", (q) => q.eq("sampleId", t.sampleId))
+        .first();
+      if (!sample) continue;
+
+      const product = await ctx.db
+        .query("kitProducts")
+        .withIndex("by_kitProductId", (q) => q.eq("kitProductId", sample.kitProductId))
+        .first();
+
+      const kit = product
+        ? await ctx.db
+            .query("kits")
+            .withIndex("by_kitId", (q) => q.eq("kitId", product.kitId))
+            .first()
+        : null;
+
+      const supplier = await ctx.db
+        .query("suppliers")
+        .withIndex("by_supplierId", (q) => q.eq("supplierId", sample.supplierId))
+        .first();
+
+      const images = await ctx.db
+        .query("sampleImages")
+        .withIndex("by_sampleId", (q) => q.eq("sampleId", sample.sampleId))
+        .collect();
+      const imageUrls: string[] = [];
+      for (const img of images) {
+        const url = await ctx.storage.getUrl(img.storageId);
+        if (url) imageUrls.push(url);
+      }
+
+      results.push({
+        ...t,
+        sample,
+        productName: product?.name || "",
+        kitId: product?.kitId || "",
+        kitName: kit?.name || "",
+        supplierName: supplier?.name || sample.supplierId,
+        imageUrls,
+      });
+    }
+
+    return results;
+  },
+});
+
+// Bulk update sample stage
+export const bulkUpdateSampleStage = mutation({
+  args: {
+    sampleIds: v.array(v.string()),
+    currentStage: v.number(),
+  },
+  handler: async (ctx, { sampleIds, currentStage }) => {
+    for (const sampleId of sampleIds) {
+      const sample = await ctx.db
+        .query("samples")
+        .withIndex("by_sampleId", (q) => q.eq("sampleId", sampleId))
+        .first();
+      if (sample) {
+        await ctx.db.patch(sample._id, { currentStage });
+      }
+    }
+    return true;
+  },
+});
+
+// Bulk delete samples
+export const bulkDeleteSamples = mutation({
+  args: { sampleIds: v.array(v.string()) },
+  handler: async (ctx, { sampleIds }) => {
+    for (const sampleId of sampleIds) {
+      const sample = await ctx.db
+        .query("samples")
+        .withIndex("by_sampleId", (q) => q.eq("sampleId", sampleId))
+        .first();
+      if (!sample) continue;
+
+      const milestones = await ctx.db
+        .query("sampleMilestones")
+        .withIndex("by_sampleId", (q) => q.eq("sampleId", sampleId))
+        .collect();
+      for (const m of milestones) await ctx.db.delete(m._id);
+
+      const tracking = await ctx.db
+        .query("sampleTrackingNumbers")
+        .withIndex("by_sampleId", (q) => q.eq("sampleId", sampleId))
+        .collect();
+      for (const t of tracking) await ctx.db.delete(t._id);
+
+      const images = await ctx.db
+        .query("sampleImages")
+        .withIndex("by_sampleId", (q) => q.eq("sampleId", sampleId))
+        .collect();
+      for (const img of images) {
+        await ctx.storage.delete(img.storageId);
+        await ctx.db.delete(img._id);
+      }
+
+      await ctx.db.delete(sample._id);
+    }
+    return true;
+  },
+});
+
 // Final Products
 export const addKitFinalProduct = mutation({
   args: {
     kitProductId: v.string(),
     supplierId: v.optional(v.string()),
     quantity: v.optional(v.number()),
+    quantityPerKit: v.optional(v.number()),
     pricePerUnit: v.optional(v.number()),
     weight: v.optional(v.number()),
+    volume: v.optional(v.number()),
+    dimHeight: v.optional(v.number()),
+    dimWidth: v.optional(v.number()),
+    dimLength: v.optional(v.number()),
+    isBox: v.optional(v.boolean()),
     moq: v.optional(v.number()),
     totalCost: v.optional(v.number()),
     productionRound: v.optional(v.string()),
@@ -631,8 +767,14 @@ export const addKitFinalProduct = mutation({
       kitProductId: args.kitProductId,
       supplierId: args.supplierId,
       quantity: args.quantity,
+      quantityPerKit: args.quantityPerKit,
       pricePerUnit: args.pricePerUnit,
       weight: args.weight,
+      volume: args.volume,
+      dimHeight: args.dimHeight,
+      dimWidth: args.dimWidth,
+      dimLength: args.dimLength,
+      isBox: args.isBox,
       moq: args.moq,
       totalCost: args.totalCost,
       productionRound: args.productionRound,
@@ -648,8 +790,14 @@ export const updateKitFinalProduct = mutation({
     kitFinalProductId: v.string(),
     supplierId: v.optional(v.string()),
     quantity: v.optional(v.number()),
+    quantityPerKit: v.optional(v.number()),
     pricePerUnit: v.optional(v.number()),
     weight: v.optional(v.number()),
+    volume: v.optional(v.number()),
+    dimHeight: v.optional(v.number()),
+    dimWidth: v.optional(v.number()),
+    dimLength: v.optional(v.number()),
+    isBox: v.optional(v.boolean()),
     moq: v.optional(v.number()),
     totalCost: v.optional(v.number()),
     productionRound: v.optional(v.string()),
@@ -666,8 +814,14 @@ export const updateKitFinalProduct = mutation({
     const updates: Record<string, unknown> = {};
     if (args.supplierId !== undefined) updates.supplierId = args.supplierId;
     if (args.quantity !== undefined) updates.quantity = args.quantity;
+    if (args.quantityPerKit !== undefined) updates.quantityPerKit = args.quantityPerKit;
     if (args.pricePerUnit !== undefined) updates.pricePerUnit = args.pricePerUnit;
     if (args.weight !== undefined) updates.weight = args.weight;
+    if (args.volume !== undefined) updates.volume = args.volume;
+    if (args.dimHeight !== undefined) updates.dimHeight = args.dimHeight;
+    if (args.dimWidth !== undefined) updates.dimWidth = args.dimWidth;
+    if (args.dimLength !== undefined) updates.dimLength = args.dimLength;
+    if (args.isBox !== undefined) updates.isBox = args.isBox;
     if (args.moq !== undefined) updates.moq = args.moq;
     if (args.totalCost !== undefined) updates.totalCost = args.totalCost;
     if (args.productionRound !== undefined) updates.productionRound = args.productionRound;

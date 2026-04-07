@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { formatNumber } from '@/lib/utils';
@@ -18,6 +18,7 @@ import {
   PhotoIcon,
   XMarkIcon,
   ArrowDownTrayIcon,
+  CubeIcon,
 } from '@heroicons/react/24/outline';
 import { Doc, Id } from '../../../convex/_generated/dataModel';
 
@@ -95,6 +96,13 @@ interface CostFile {
   fileType: string;
 }
 
+interface SampleImage {
+  _id: string;
+  sampleId: string;
+  url: string | null;
+  caption?: string;
+}
+
 interface FinalPurchaseTabProps {
   kitId: string;
   products: Doc<'kitProducts'>[];
@@ -104,6 +112,11 @@ interface FinalPurchaseTabProps {
   costFiles: CostFile[];
   suppliers: Doc<'suppliers'>[];
   allSuppliers: Doc<'suppliers'>[];
+  kitSearch?: string;
+  samples?: Doc<'samples'>[];
+  sampleImages?: SampleImage[];
+  targetKitCount?: number;
+  onUpdateTargetKitCount?: (count: number | undefined) => void;
 }
 
 export default function FinalPurchaseTab({
@@ -115,6 +128,11 @@ export default function FinalPurchaseTab({
   costFiles,
   suppliers,
   allSuppliers,
+  kitSearch = '',
+  samples = [],
+  sampleImages = [],
+  targetKitCount,
+  onUpdateTargetKitCount,
 }: FinalPurchaseTabProps) {
   const { showToast } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
@@ -133,6 +151,17 @@ export default function FinalPurchaseTab({
 
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
+  // Debounced target kit count
+  const [localTargetKitCount, setLocalTargetKitCount] = useState(targetKitCount?.toString() ?? '');
+  const targetKitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const targetKitSavedRef = useRef(targetKitCount);
+  useEffect(() => {
+    if (targetKitSavedRef.current !== targetKitCount) {
+      targetKitSavedRef.current = targetKitCount;
+      setLocalTargetKitCount(targetKitCount?.toString() ?? '');
+    }
+  }, [targetKitCount]);
+
   // Product form
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -142,8 +171,12 @@ export default function FinalPurchaseTab({
     supplierId: '',
     supplierSearch: '',
     quantity: '',
+    quantityPerKit: '',
     pricePerUnit: '',
     weight: '',
+    dimHeight: '',
+    dimWidth: '',
+    dimLength: '',
     moq: '',
     productionRound: '',
     notes: '',
@@ -172,9 +205,57 @@ export default function FinalPurchaseTab({
     return products.find((p) => p.kitProductId === kitProductId)?.name || kitProductId;
   };
 
+  // CBM = height(mm) * width(mm) * length(mm) / 1,000,000,000
+  const getCbm = (fp: Doc<'kitFinalProducts'>): number | null => {
+    if (fp.dimHeight != null && fp.dimWidth != null && fp.dimLength != null) {
+      return (fp.dimHeight * fp.dimWidth * fp.dimLength) / 1_000_000_000;
+    }
+    if (fp.volume != null) return fp.volume;
+    return null;
+  };
+
+  // Find the first sample image for a final product (same supplier + same product)
+  const getSampleImageUrl = (fp: Doc<'kitFinalProducts'>): string | null => {
+    if (!fp.supplierId) return null;
+    const matchingSamples = samples.filter(
+      (s) => s.supplierId === fp.supplierId && s.kitProductId === fp.kitProductId
+    );
+    for (const s of matchingSamples) {
+      const img = sampleImages.find((i) => i.sampleId === s.sampleId && i.url);
+      if (img?.url) return img.url;
+    }
+    return null;
+  };
+
   const filteredSupplierSuggestions = allSuppliers.filter((s) =>
     s.name.toLowerCase().includes(productForm.supplierSearch.toLowerCase())
   );
+
+  // Kit-wide search filter
+  const filteredFinalProducts = useMemo(() => {
+    const term = kitSearch.trim().toLowerCase();
+    if (!term) return finalProducts;
+    return finalProducts.filter((fp) => {
+      if (getProductName(fp.kitProductId).toLowerCase().includes(term)) return true;
+      if (getSupplierName(fp.supplierId).toLowerCase().includes(term)) return true;
+      if (fp.notes && fp.notes.toLowerCase().includes(term)) return true;
+      if (fp.pricePerUnit != null && fp.pricePerUnit.toString().includes(term)) return true;
+      if (fp.productionRound && fp.productionRound.toLowerCase().includes(term)) return true;
+      return false;
+    });
+  }, [kitSearch, finalProducts, products, suppliers, allSuppliers]);
+
+  const filteredCosts = useMemo(() => {
+    const term = kitSearch.trim().toLowerCase();
+    if (!term) return costs;
+    return costs.filter((c) => {
+      if (c.description.toLowerCase().includes(term)) return true;
+      if (c.notes && c.notes.toLowerCase().includes(term)) return true;
+      if (c.amount.toString().includes(term)) return true;
+      if (c.leadTime && c.leadTime.toLowerCase().includes(term)) return true;
+      return false;
+    });
+  }, [kitSearch, costs]);
 
   // Calculate cost amounts
   const getRowTotal = (fp: Doc<'kitFinalProducts'>) => {
@@ -199,10 +280,23 @@ export default function FinalPurchaseTab({
   const totalCostsAmount = costs.reduce((sum, c) => sum + getCostCalculatedAmount(c), 0);
   const grandTotal = productsTotalCost + totalCostsAmount;
   const totalWeight = finalProducts.reduce((sum, fp) => sum + ((fp.weight || 0) * (fp.quantity || 0)), 0);
+  const totalWeightPerUnit = finalProducts.reduce((sum, fp) => sum + (fp.weight || 0), 0);
   const totalPricePerUnit = finalProducts.reduce((sum, fp) => sum + (fp.pricePerUnit || 0), 0);
+  const totalQuantityPerKit = finalProducts.reduce((sum, fp) => sum + (fp.quantityPerKit || 0), 0);
+  const totalWeightPerKit = finalProducts.reduce((sum, fp) => sum + ((fp.quantityPerKit || 0) * (fp.weight || 0)), 0);
+  const totalPricePerKit = finalProducts.reduce((sum, fp) => sum + ((fp.quantityPerKit || 0) * (fp.pricePerUnit || 0)), 0);
+  // Only box-marked products count toward CBM totals
+  const boxProducts = finalProducts.filter((fp) => fp.isBox);
+  const totalVolumePerKit = boxProducts.reduce((sum, fp) => sum + ((fp.quantityPerKit || 0) * (getCbm(fp) || 0)), 0);
+  const totalVolumeAll = totalVolumePerKit * (targetKitCount || 0);
+  // Kit amounts = min of (quantity / quantityPerKit) across all products that have both values
+  const kitAmounts = finalProducts
+    .filter((fp) => fp.quantity && fp.quantityPerKit && fp.quantityPerKit > 0)
+    .map((fp) => Math.floor((fp.quantity || 0) / (fp.quantityPerKit || 1)));
+  const totalKitAmounts = kitAmounts.length > 0 ? Math.min(...kitAmounts) : 0;
 
   // Product handlers
-  const resetProductForm = () => setProductForm({ kitProductId: '', newProductName: '', supplierId: '', supplierSearch: '', quantity: '', pricePerUnit: '', weight: '', moq: '', productionRound: '', notes: '' });
+  const resetProductForm = () => setProductForm({ kitProductId: '', newProductName: '', supplierId: '', supplierSearch: '', quantity: '', quantityPerKit: '', pricePerUnit: '', weight: '', dimHeight: '', dimWidth: '', dimLength: '', moq: '', productionRound: '', notes: '' });
 
   const handleAddProduct = async () => {
     let productId = productForm.kitProductId;
@@ -220,8 +314,12 @@ export default function FinalPurchaseTab({
         kitProductId: productId,
         supplierId: productForm.supplierId || undefined,
         quantity: qty,
+        quantityPerKit: productForm.quantityPerKit ? parseFloat(productForm.quantityPerKit) : undefined,
         pricePerUnit: ppu,
         weight: productForm.weight ? parseFloat(productForm.weight) : undefined,
+        dimHeight: productForm.dimHeight ? parseFloat(productForm.dimHeight) : undefined,
+        dimWidth: productForm.dimWidth ? parseFloat(productForm.dimWidth) : undefined,
+        dimLength: productForm.dimLength ? parseFloat(productForm.dimLength) : undefined,
         moq: productForm.moq ? parseInt(productForm.moq) : undefined,
         totalCost: total,
         productionRound: productForm.productionRound || undefined,
@@ -243,8 +341,12 @@ export default function FinalPurchaseTab({
         kitFinalProductId: editingProductId,
         supplierId: productForm.supplierId || undefined,
         quantity: qty,
+        quantityPerKit: productForm.quantityPerKit ? parseFloat(productForm.quantityPerKit) : undefined,
         pricePerUnit: ppu,
         weight: productForm.weight ? parseFloat(productForm.weight) : undefined,
+        dimHeight: productForm.dimHeight ? parseFloat(productForm.dimHeight) : undefined,
+        dimWidth: productForm.dimWidth ? parseFloat(productForm.dimWidth) : undefined,
+        dimLength: productForm.dimLength ? parseFloat(productForm.dimLength) : undefined,
         moq: productForm.moq ? parseInt(productForm.moq) : undefined,
         totalCost: total,
         productionRound: productForm.productionRound || undefined,
@@ -269,8 +371,12 @@ export default function FinalPurchaseTab({
       supplierId: fp.supplierId || '',
       supplierSearch: fp.supplierId ? getSupplierName(fp.supplierId) : '',
       quantity: fp.quantity?.toString() || '',
+      quantityPerKit: fp.quantityPerKit?.toString() || '',
       pricePerUnit: fp.pricePerUnit?.toString() || '',
       weight: fp.weight?.toString() || '',
+      dimHeight: fp.dimHeight?.toString() || '',
+      dimWidth: fp.dimWidth?.toString() || '',
+      dimLength: fp.dimLength?.toString() || '',
       moq: fp.moq?.toString() || '',
       productionRound: fp.productionRound || '',
       notes: fp.notes || '',
@@ -400,7 +506,7 @@ export default function FinalPurchaseTab({
       rows.push([label, '', '', '', fmt(calculated), '', '', '', cost.notes || '']);
     }
     // Totals
-    rows.push(['סה"כ', '', '', fmt(totalPricePerUnit, 3), fmt(grandTotal), '', (totalWeight / 1000).toFixed(1), '', '']);
+    rows.push(['סה"כ', '', '', fmt(totalPricePerUnit, 3), fmt(grandTotal), totalWeightPerUnit, (totalWeight / 1000).toFixed(1), '', '']);
 
     const BOM = '\uFEFF';
     const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
@@ -419,7 +525,35 @@ export default function FinalPurchaseTab({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">קנייה סופית</h3>
+        <div className="flex items-center gap-4">
+          <h3 className="text-lg font-semibold text-gray-900">קנייה סופית</h3>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm text-gray-500">ערכות רצויות:</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={localTargetKitCount}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/[^0-9]/g, '');
+                setLocalTargetKitCount(raw);
+                if (targetKitTimerRef.current) clearTimeout(targetKitTimerRef.current);
+                targetKitTimerRef.current = setTimeout(() => {
+                  const val = raw ? parseInt(raw) : undefined;
+                  targetKitSavedRef.current = val;
+                  onUpdateTargetKitCount?.(val);
+                }, 600);
+              }}
+              onBlur={() => {
+                if (targetKitTimerRef.current) clearTimeout(targetKitTimerRef.current);
+                const val = localTargetKitCount ? parseInt(localTargetKitCount) : undefined;
+                targetKitSavedRef.current = val;
+                onUpdateTargetKitCount?.(val);
+              }}
+              className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-lg text-center font-medium focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="-"
+            />
+          </div>
+        </div>
         <div className="flex gap-2">
           <Button size="sm" variant="secondary" onClick={handleExportCSV}>
             <ArrowDownTrayIcon className="w-4 h-4" />
@@ -452,6 +586,14 @@ export default function FinalPurchaseTab({
                 <th className="px-3 py-3 text-right font-medium text-gray-600">סה"כ ($)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">משקל/יח (ג)</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">משקל כולל (ק"ג)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">מידות (מ"מ)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">CBM/יח</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">CBM ערכה</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600 w-[60px]">כמות בערכה</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">משקל ערכה (ג)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">מחיר ערכה ($)</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">CBM כולל</th>
+                <th className="px-3 py-3 text-right font-medium text-gray-600">כמות ערכות</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">MOQ</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">Lead Time</th>
                 <th className="px-3 py-3 text-right font-medium text-gray-600">קבצים</th>
@@ -460,12 +602,27 @@ export default function FinalPurchaseTab({
             </thead>
             <tbody>
               {/* Product rows */}
-              {finalProducts.map((fp) => {
+              {filteredFinalProducts.map((fp) => {
                 const rowTotal = getRowTotal(fp);
                 const belowMoq = fp.quantity != null && fp.moq != null && fp.quantity < fp.moq;
                 return (
                 <tr key={fp.kitFinalProductId} className={`border-b border-gray-100 hover:bg-gray-50 ${belowMoq ? 'bg-red-50' : ''}`}>
-                  <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{getProductName(fp.kitProductId)}</td>
+                  <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>
+                    <div className="flex items-center gap-2">
+                      {(() => {
+                        const imgUrl = getSampleImageUrl(fp);
+                        return imgUrl ? (
+                          <img
+                            src={imgUrl}
+                            alt=""
+                            className="w-8 h-8 object-cover rounded border border-gray-200 hover:border-blue-400 cursor-pointer transition-colors shrink-0"
+                            onClick={() => setLightboxUrl(imgUrl)}
+                          />
+                        ) : null;
+                      })()}
+                      <span>{getProductName(fp.kitProductId)}</span>
+                    </div>
+                  </td>
                   <td className="px-1 py-1">
                     <DebouncedQuantityInput
                       value={fp.quantity}
@@ -485,6 +642,45 @@ export default function FinalPurchaseTab({
                   <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{rowTotal > 0 ? `$${formatNumber(rowTotal)}` : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.weight != null ? formatNumber(fp.weight, 0) : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.weight != null && fp.quantity != null ? formatNumber((fp.weight * fp.quantity) / 1000, 1) : '-'}</td>
+                  <td className="px-3 py-3 text-gray-500 text-xs whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={async () => {
+                          await updateFinalProductMutation({
+                            kitFinalProductId: fp.kitFinalProductId,
+                            isBox: !fp.isBox,
+                          });
+                        }}
+                        className={`p-0.5 rounded transition-colors shrink-0 ${fp.isBox ? 'text-blue-600 bg-blue-100' : 'text-gray-300 hover:text-gray-500'}`}
+                        title={fp.isBox ? 'מסומן כקופסה (נכלל בסה"כ CBM)' : 'סמן כקופסה'}
+                      >
+                        <CubeIcon className="w-4 h-4" />
+                      </button>
+                      <span>
+                        {fp.dimHeight != null && fp.dimWidth != null && fp.dimLength != null
+                          ? `${fp.dimHeight}×${fp.dimWidth}×${fp.dimLength}`
+                          : '-'}
+                      </span>
+                    </div>
+                  </td>
+                  <td className={`px-3 py-3 ${fp.isBox ? 'text-blue-700 font-medium' : 'text-gray-400'}`}>{getCbm(fp) != null ? formatNumber(getCbm(fp)!, 4) : '-'}</td>
+                  <td className={`px-3 py-3 ${fp.isBox ? 'text-blue-700 font-medium' : 'text-gray-400'}`}>{getCbm(fp) != null && fp.quantityPerKit != null ? formatNumber(getCbm(fp)! * fp.quantityPerKit, 4) : '-'}</td>
+                  <td className="px-1 py-1 w-[60px]">
+                    <DebouncedQuantityInput
+                      value={fp.quantityPerKit}
+                      belowMoq={false}
+                      onSave={async (val) => {
+                        await updateFinalProductMutation({
+                          kitFinalProductId: fp.kitFinalProductId,
+                          quantityPerKit: val,
+                        });
+                      }}
+                    />
+                  </td>
+                  <td className="px-3 py-3 text-gray-600">{fp.quantityPerKit != null && fp.weight != null ? formatNumber(fp.quantityPerKit * fp.weight, 0) : '-'}</td>
+                  <td className="px-3 py-3 text-gray-600">{fp.quantityPerKit != null && fp.pricePerUnit != null ? `$${formatNumber(fp.quantityPerKit * fp.pricePerUnit, 2)}` : '-'}</td>
+                  <td className={`px-3 py-3 ${fp.isBox ? 'text-blue-700 font-medium' : 'text-gray-400'}`}>{fp.quantityPerKit != null && getCbm(fp) != null && targetKitCount ? formatNumber(fp.quantityPerKit * getCbm(fp)! * targetKitCount, 2) : '-'}</td>
+                  <td className="px-3 py-3 text-gray-600 font-medium">{fp.quantity != null && fp.quantityPerKit != null && fp.quantityPerKit > 0 ? formatNumber(Math.floor(fp.quantity / fp.quantityPerKit), 0) : '-'}</td>
                   <td className={`px-3 py-3 ${belowMoq ? 'text-red-700 font-medium' : 'text-gray-600'}`}>{fp.moq != null ? formatNumber(fp.moq, 0) : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.productionRound || '-'}</td>
                   {/* Files */}
@@ -555,12 +751,12 @@ export default function FinalPurchaseTab({
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <td className="px-3 py-2 text-gray-500 font-medium" colSpan={4}>סה"כ מוצרים</td>
                   <td className="px-3 py-2 text-gray-700 font-medium">${formatNumber(productsTotalCost)}</td>
-                  <td colSpan={6} className="px-3 py-2"></td>
+                  <td colSpan={14} className="px-3 py-2"></td>
                 </tr>
               )}
 
               {/* Cost rows */}
-              {costs.map((cost) => {
+              {filteredCosts.map((cost) => {
                 const calculated = getCostCalculatedAmount(cost);
                 const label = cost.costType === 'percentage'
                   ? `${cost.description} (${cost.amount}%)`
@@ -585,6 +781,22 @@ export default function FinalPurchaseTab({
                     <td className="px-3 py-3"></td>
                     {/* משקל כולל */}
                     <td className="px-3 py-3 text-gray-500 text-xs">{cost.notes || ''}</td>
+                    {/* מידות */}
+                    <td className="px-3 py-3"></td>
+                    {/* CBM/יח */}
+                    <td className="px-3 py-3"></td>
+                    {/* CBM כולל */}
+                    <td className="px-3 py-3"></td>
+                    {/* כמות בערכה */}
+                    <td className="px-3 py-3"></td>
+                    {/* משקל ערכה */}
+                    <td className="px-3 py-3"></td>
+                    {/* מחיר ערכה */}
+                    <td className="px-3 py-3"></td>
+                    {/* נפח ערכה */}
+                    <td className="px-3 py-3"></td>
+                    {/* כמות ערכות */}
+                    <td className="px-3 py-3"></td>
                     {/* MOQ */}
                     <td className="px-3 py-3"></td>
                     {/* Lead Time */}
@@ -636,8 +848,16 @@ export default function FinalPurchaseTab({
                 <td className="px-3 py-3"></td>
                 <td className="px-3 py-3 text-gray-900">${formatNumber(totalPricePerUnit, 3)}</td>
                 <td className="px-3 py-3 text-gray-900">${formatNumber(grandTotal)}</td>
-                <td className="px-3 py-3"></td>
+                <td className="px-3 py-3 text-gray-900">{formatNumber(totalWeightPerUnit, 0)}</td>
                 <td className="px-3 py-3 text-gray-900">{formatNumber(totalWeight / 1000, 1)}</td>
+                <td className="px-3 py-3"></td>
+                <td className="px-3 py-3"></td>
+                <td className="px-3 py-3 text-gray-900">{formatNumber(totalVolumePerKit, 4)}</td>
+                <td className="px-3 py-3 text-gray-900">{formatNumber(totalQuantityPerKit, 0)}</td>
+                <td className="px-3 py-3 text-gray-900">{formatNumber(totalWeightPerKit, 0)}</td>
+                <td className="px-3 py-3 text-gray-900">${formatNumber(totalPricePerKit, 2)}</td>
+                <td className="px-3 py-3 text-gray-900 font-bold">{formatNumber(totalVolumeAll, 2)}</td>
+                <td className="px-3 py-3 text-gray-900 font-bold">{totalKitAmounts}</td>
                 <td className="px-3 py-3"></td>
                 <td className="px-3 py-3"></td>
                 <td className="px-3 py-3"></td>
@@ -687,8 +907,9 @@ export default function FinalPurchaseTab({
               </div>
             )}
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             <Input id="fpQuantity" label="כמות" type="number" value={productForm.quantity} onChange={(e) => setProductForm({ ...productForm, quantity: e.target.value })} />
+            <Input id="fpQuantityPerKit" label="כמות בערכה" type="number" value={productForm.quantityPerKit} onChange={(e) => setProductForm({ ...productForm, quantityPerKit: e.target.value })} />
             <Input id="fpPricePerUnit" label="מחיר ליחידה ($)" type="number" value={productForm.pricePerUnit} onChange={(e) => setProductForm({ ...productForm, pricePerUnit: e.target.value })} />
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">סה"כ ($)</label>
@@ -702,6 +923,19 @@ export default function FinalPurchaseTab({
           <div className="grid grid-cols-2 gap-4">
             <Input id="fpWeight" label="משקל (גרם)" type="number" value={productForm.weight} onChange={(e) => setProductForm({ ...productForm, weight: e.target.value })} />
             <Input id="fpMoq" label="MOQ" type="number" value={productForm.moq} onChange={(e) => setProductForm({ ...productForm, moq: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">מידות (מ&quot;מ)</label>
+            <div className="grid grid-cols-4 gap-2 items-end">
+              <Input id="fpDimH" label="" type="number" value={productForm.dimHeight} onChange={(e) => setProductForm({ ...productForm, dimHeight: e.target.value })} placeholder="גובה" />
+              <Input id="fpDimW" label="" type="number" value={productForm.dimWidth} onChange={(e) => setProductForm({ ...productForm, dimWidth: e.target.value })} placeholder="רוחב" />
+              <Input id="fpDimL" label="" type="number" value={productForm.dimLength} onChange={(e) => setProductForm({ ...productForm, dimLength: e.target.value })} placeholder="אורך" />
+              <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 text-center">
+                {productForm.dimHeight && productForm.dimWidth && productForm.dimLength
+                  ? `${formatNumber((parseFloat(productForm.dimHeight) * parseFloat(productForm.dimWidth) * parseFloat(productForm.dimLength)) / 1_000_000_000, 4)} CBM`
+                  : '- CBM'}
+              </div>
+            </div>
           </div>
           <Input id="fpRound" label="Lead Time" value={productForm.productionRound} onChange={(e) => setProductForm({ ...productForm, productionRound: e.target.value })} placeholder="לדוגמה: 25 ימים" />
           <Input id="fpNotes" label="הערות" value={productForm.notes} onChange={(e) => setProductForm({ ...productForm, notes: e.target.value })} />
@@ -810,12 +1044,12 @@ export default function FinalPurchaseTab({
       {/* Lightbox */}
       {lightboxUrl && (
         <>
-          <div className="fixed inset-0 bg-black/80 z-40" onClick={() => setLightboxUrl(null)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setLightboxUrl(null)}>
-            <div className="relative max-w-4xl max-h-[90vh]">
-              <img src={lightboxUrl} alt="" className="max-w-full max-h-[90vh] object-contain rounded-lg" />
-              <button onClick={() => setLightboxUrl(null)} className="absolute top-2 left-2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70">
-                <XMarkIcon className="w-5 h-5" />
+          <div className="fixed inset-0 bg-black/70 z-40" onClick={() => setLightboxUrl(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-8" onClick={() => setLightboxUrl(null)}>
+            <div className="relative bg-white rounded-xl shadow-2xl overflow-hidden max-w-lg max-h-[70vh]" onClick={(e) => e.stopPropagation()}>
+              <img src={lightboxUrl} alt="" className="max-w-full max-h-[65vh] object-contain" />
+              <button onClick={() => setLightboxUrl(null)} className="absolute top-2 left-2 w-7 h-7 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70 transition-colors">
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
           </div>
