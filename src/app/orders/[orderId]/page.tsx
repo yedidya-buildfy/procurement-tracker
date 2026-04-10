@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../../convex/_generated/api';
@@ -32,11 +32,17 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
   const { showToast } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
 
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab') as TabId | null;
+  const activeTab: TabId = tabParam && ['summary', 'products', 'costs', 'payments'].includes(tabParam) ? tabParam : 'summary';
+
+  const setActiveTab = (tab: TabId) => {
+    router.replace(`/orders/${orderId}?tab=${tab}`, { scroll: false });
+  };
+
   const data = useQuery(api.orders.getOrderFull, { orderId });
   const updateOrderMutation = useMutation(api.orders.updateOrder);
   const deleteOrderMutation = useMutation(api.orders.deleteOrder);
-
-  const [activeTab, setActiveTab] = useState<TabId>('summary');
   const [isEditing, setIsEditing] = useState(false);
   const [editedOrder, setEditedOrder] = useState<{
     orderName?: string;
@@ -250,7 +256,6 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
               <ProductsTab
                 orderId={orderId}
                 products={data.products}
-                productMilestones={data.productMilestones}
               />
             )}
             {activeTab === 'costs' && (

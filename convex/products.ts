@@ -37,6 +37,8 @@ export const addProduct = mutation({
     kgTotal: v.number(),
     orderDate: v.optional(v.string()),
     notes: v.optional(v.string()),
+    sourceKitId: v.optional(v.string()),
+    sourceKitFinalProductId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const productId = generateId("PROD");
@@ -56,6 +58,8 @@ export const addProduct = mutation({
       kgTotal: args.kgTotal,
       orderDate: args.orderDate,
       notes: args.notes,
+      sourceKitId: args.sourceKitId,
+      sourceKitFinalProductId: args.sourceKitFinalProductId,
     });
 
     // Auto-create pending payment for this product
@@ -128,11 +132,21 @@ export const updateProduct = mutation({
 export const getAllSuppliers = query({
   args: {},
   handler: async (ctx) => {
-    const products = await ctx.db.query("products").collect();
-    const suppliers = products
+    // Collect supplier names from all sources
+    const [products, suppliers] = await Promise.all([
+      ctx.db.query("products").collect(),
+      ctx.db.query("suppliers").collect(),
+    ]);
+
+    const productSuppliers = products
       .map((p) => p.supplier)
       .filter((s): s is string => !!s && s.trim() !== '');
-    return [...new Set(suppliers)];
+
+    const registeredSuppliers = suppliers
+      .map((s) => s.name)
+      .filter((s) => s.trim() !== '');
+
+    return [...new Set([...registeredSuppliers, ...productSuppliers])];
   },
 });
 
@@ -205,9 +219,98 @@ export const deleteProduct = mutation({
       }
     }
 
+    // Delete related product files and their storage
+    const productFiles = await ctx.db
+      .query("productFiles")
+      .withIndex("by_productId", (q) => q.eq("productId", productId))
+      .collect();
+
+    for (const file of productFiles) {
+      await ctx.storage.delete(file.storageId);
+      await ctx.db.delete(file._id);
+    }
+
     // Delete the product
     await ctx.db.delete(product._id);
 
     return true;
+  },
+});
+
+// Product Files
+export const getProductFiles = query({
+  args: { productId: v.string() },
+  handler: async (ctx, { productId }) => {
+    const files = await ctx.db
+      .query("productFiles")
+      .withIndex("by_productId", (q) => q.eq("productId", productId))
+      .collect();
+
+    return Promise.all(
+      files.map(async (f) => ({
+        _id: f._id,
+        productId: f.productId,
+        url: await ctx.storage.getUrl(f.storageId),
+        fileName: f.fileName,
+        fileType: f.fileType,
+      }))
+    );
+  },
+});
+
+export const getProductFilesByOrder = query({
+  args: { orderId: v.string() },
+  handler: async (ctx, { orderId }) => {
+    const products = await ctx.db
+      .query("products")
+      .withIndex("by_orderId", (q) => q.eq("orderId", orderId))
+      .collect();
+
+    const result: Record<string, { _id: string; url: string | null; fileName: string; fileType: string }[]> = {};
+    for (const product of products) {
+      const files = await ctx.db
+        .query("productFiles")
+        .withIndex("by_productId", (q) => q.eq("productId", product.productId))
+        .collect();
+
+      if (files.length > 0) {
+        result[product.productId] = await Promise.all(
+          files.map(async (f) => ({
+            _id: f._id as string,
+            url: await ctx.storage.getUrl(f.storageId),
+            fileName: f.fileName,
+            fileType: f.fileType,
+          }))
+        );
+      }
+    }
+    return result;
+  },
+});
+
+export const addProductFile = mutation({
+  args: {
+    productId: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    fileType: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("productFiles", {
+      productId: args.productId,
+      storageId: args.storageId,
+      fileName: args.fileName,
+      fileType: args.fileType,
+    });
+  },
+});
+
+export const deleteProductFile = mutation({
+  args: { id: v.id("productFiles") },
+  handler: async (ctx, { id }) => {
+    const file = await ctx.db.get(id);
+    if (!file) return;
+    await ctx.storage.delete(file.storageId);
+    await ctx.db.delete(id);
   },
 });

@@ -31,6 +31,8 @@ export default defineSchema({
     kgTotal: v.number(),
     orderDate: v.optional(v.string()),
     notes: v.optional(v.string()),
+    sourceKitId: v.optional(v.string()),
+    sourceKitFinalProductId: v.optional(v.string()),
   })
     .index("by_orderId", ["orderId"])
     .index("by_productId", ["productId"]),
@@ -256,7 +258,16 @@ export default defineSchema({
     country: v.optional(v.string()),
     notes: v.optional(v.string()),
     createdDate: v.optional(v.string()),
+    alibabaChatUrl: v.optional(v.string()),
   })
     .index("by_name", ["name"])
     .index("by_supplierId", ["supplierId"]),
+
+  productFiles: defineTable({
+    productId: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    fileType: v.string(),
+  })
+    .index("by_productId", ["productId"]),
 });

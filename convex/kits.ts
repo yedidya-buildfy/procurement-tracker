@@ -1057,3 +1057,61 @@ export const getSampleImageUrls = query({
     return result;
   },
 });
+
+export const getAllFinalProductsForAutocomplete = query({
+  args: {},
+  handler: async (ctx) => {
+    const finalProducts = await ctx.db.query("kitFinalProducts").collect();
+    const results: {
+      kitFinalProductId: string;
+      kitId: string;
+      name: string;
+      supplierName: string;
+      quantity?: number;
+      pricePerUnit?: number;
+      weight?: number;
+      volume?: number;
+      kitName: string;
+    }[] = [];
+
+    for (const fp of finalProducts) {
+      // Get the kitProduct to get the name
+      const kitProduct = await ctx.db
+        .query("kitProducts")
+        .withIndex("by_kitProductId", (q) => q.eq("kitProductId", fp.kitProductId))
+        .first();
+      if (!kitProduct) continue;
+
+      // Get the kit name
+      const kit = await ctx.db
+        .query("kits")
+        .withIndex("by_kitId", (q) => q.eq("kitId", kitProduct.kitId))
+        .first();
+
+      // Get supplier name
+      let supplierName = "";
+      if (fp.supplierId) {
+        const suppId = fp.supplierId;
+        const supplier = await ctx.db
+          .query("suppliers")
+          .withIndex("by_supplierId", (q) => q.eq("supplierId", suppId))
+          .first();
+        if (supplier) supplierName = supplier.name;
+      }
+
+      results.push({
+        kitFinalProductId: fp.kitFinalProductId,
+        kitId: kitProduct.kitId,
+        name: kitProduct.name,
+        supplierName,
+        quantity: fp.quantity ?? undefined,
+        pricePerUnit: fp.pricePerUnit ?? undefined,
+        weight: fp.weight ?? undefined,
+        volume: fp.volume ?? undefined,
+        kitName: kit?.name ?? "",
+      });
+    }
+
+    return results;
+  },
+});

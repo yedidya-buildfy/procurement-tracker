@@ -29,6 +29,7 @@ import {
   ArchiveBoxXMarkIcon,
   MagnifyingGlassIcon,
   AdjustmentsHorizontalIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarSolid } from '@heroicons/react/24/solid';
 import { Doc, Id } from '../../../convex/_generated/dataModel';
@@ -110,6 +111,7 @@ export default function SamplesTab({
   const bulkUpdateStageMutation = useMutation(api.kits.bulkUpdateSampleStage);
   const bulkDeleteMutation = useMutation(api.kits.bulkDeleteSamples);
   const addSupplierMutation = useMutation(api.suppliers.addSupplier);
+  const updateSupplierMutation = useMutation(api.suppliers.updateSupplier);
   const generateUploadUrlMutation = useMutation(api.kits.generateUploadUrl);
   const addImageMutation = useMutation(api.kits.addSampleImage);
   const deleteImageMutation = useMutation(api.kits.deleteSampleImage);
@@ -123,6 +125,8 @@ export default function SamplesTab({
   const [editProductData, setEditProductData] = useState({ name: '' });
   const [moveProduct, setMoveProduct] = useState<{ kitProductId: string; name: string } | null>(null);
   const [moveTargetKitId, setMoveTargetKitId] = useState('');
+  const [chatUrlModal, setChatUrlModal] = useState<{ supplierId: string } | null>(null);
+  const [chatUrlInput, setChatUrlInput] = useState('');
   const [showAddSample, setShowAddSample] = useState(false);
   const [newSample, setNewSample] = useState({
     supplierId: '',
@@ -170,6 +174,11 @@ export default function SamplesTab({
   const getSupplierName = (supplierId: string) => {
     const allSups = [...suppliers, ...allSuppliers];
     return allSups.find((sup) => sup.supplierId === supplierId)?.name || supplierId;
+  };
+
+  const getSupplierChatUrl = (supplierId: string) => {
+    const allSups = [...suppliers, ...allSuppliers];
+    return allSups.find((sup) => sup.supplierId === supplierId)?.alibabaChatUrl;
   };
 
   const toggleSort = (key: string) => {
@@ -915,7 +924,33 @@ export default function SamplesTab({
 
                         {/* Supplier */}
                         <td className="px-3 py-2 whitespace-nowrap">
-                          <div className="font-medium text-gray-900">{getSupplierName(sample.supplierId)}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-gray-900">{getSupplierName(sample.supplierId)}</span>
+                            {getSupplierChatUrl(sample.supplierId) ? (
+                              <a
+                                href={getSupplierChatUrl(sample.supplierId)!}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-0.5 text-orange-500 hover:text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                                title="צ'אט עם הספק באליבאבא"
+                              >
+                                <ChatBubbleLeftRightIcon className="w-4 h-4" />
+                              </a>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setChatUrlInput('');
+                                  setChatUrlModal({ supplierId: sample.supplierId });
+                                }}
+                                className="p-0.5 text-gray-300 hover:text-orange-500 hover:bg-orange-50 rounded transition-colors"
+                                title="הוסף קישור לצ'אט באליבאבא"
+                              >
+                                <ChatBubbleLeftRightIcon className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                           <div className="text-xs text-gray-400">{formatDate(sample.createdDate)}</div>
                         </td>
 
@@ -1272,6 +1307,48 @@ export default function SamplesTab({
         </>
       )}
       {ConfirmDialog}
+
+      {/* Alibaba Chat URL Modal */}
+      <Modal
+        isOpen={!!chatUrlModal}
+        onClose={() => setChatUrlModal(null)}
+        title="קישור לצ'אט באליבאבא"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">הדבק את הקישור לצ'אט עם הספק באליבאבא</p>
+          <Input
+            id="alibaba_chat_url_samples"
+            label="קישור"
+            value={chatUrlInput}
+            onChange={(e) => setChatUrlInput(e.target.value)}
+            placeholder="https://message.alibaba.com/message/messenger.htm?..."
+          />
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setChatUrlModal(null)}>
+              ביטול
+            </Button>
+            <Button
+              disabled={!chatUrlInput.trim()}
+              onClick={async () => {
+                if (!chatUrlModal) return;
+                try {
+                  await updateSupplierMutation({
+                    supplierId: chatUrlModal.supplierId,
+                    alibabaChatUrl: chatUrlInput.trim(),
+                  });
+                  showToast('קישור צ\'אט נשמר', 'success');
+                  setChatUrlModal(null);
+                } catch (error) {
+                  console.error('Error saving chat URL:', error);
+                  showToast('שגיאה בשמירת קישור', 'error');
+                }
+              }}
+            >
+              שמור
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

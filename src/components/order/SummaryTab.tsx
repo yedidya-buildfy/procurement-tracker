@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { formatCurrency, formatNumber, formatDate } from '@/lib/utils';
@@ -75,6 +76,7 @@ export default function SummaryTab({
   milestones,
   products,
 }: SummaryTabProps) {
+  const router = useRouter();
   const { showToast } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
   const addOrderMilestoneMutation = useMutation(api.milestones.addOrderMilestone);
@@ -426,7 +428,11 @@ export default function SummaryTab({
                     : 0;
 
                   return (
-                    <tr key={product.productId} className="border-b border-gray-100 hover:bg-gray-50">
+                    <tr
+                      key={product.productId}
+                      className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                      onClick={() => router.push(`/orders/${order.orderId}/products/${product.productId}?from=summary`)}
+                    >
                       <td className="px-3 py-3 font-medium text-gray-900">{product.name}</td>
                       <td className="px-3 py-3 text-gray-600">{product.supplier || '-'}</td>
                       <td className="px-3 py-3 text-gray-900">{formatNumber(product.quantity, 0)}</td>

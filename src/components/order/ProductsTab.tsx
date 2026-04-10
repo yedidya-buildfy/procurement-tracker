@@ -1,22 +1,26 @@
 'use client';
 
-import { useState, Fragment, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
-import { formatCurrency, formatNumber, formatDate } from '@/lib/utils';
+import { formatCurrency, formatNumber } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
-import Select from '@/components/ui/Select';
+
 import { useToast } from '@/components/ui/Toast';
 import { useConfirm } from '@/components/ui/useConfirm';
 import {
   PlusIcon,
-  MinusIcon,
   PencilIcon,
   TrashIcon,
-  CheckCircleIcon,
-  ClockIcon,
+  PaperClipIcon,
+  PhotoIcon,
+  ArrowDownTrayIcon,
+  ArrowLeftIcon,
+  XMarkIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
 
 interface Product {
@@ -40,20 +44,9 @@ interface Product {
   finalCostPerUnitILS?: number;
 }
 
-interface Milestone {
-  milestoneId: string;
-  productId: string;
-  milestoneTypeId: string;
-  targetDate?: string;
-  actualDate?: string;
-  status?: string;
-  notes?: string;
-}
-
 interface ProductsTabProps {
   orderId: string;
   products: Product[];
-  productMilestones: Milestone[];
 }
 
 const CURRENCIES = [
@@ -124,41 +117,66 @@ const getEmptyProduct = (): ProductFormData => ({
 export default function ProductsTab({
   orderId,
   products,
-  productMilestones,
 }: ProductsTabProps) {
   const { showToast } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
   const addProductMutation = useMutation(api.products.addProduct);
   const updateProductMutation = useMutation(api.products.updateProduct);
   const deleteProductMutation = useMutation(api.products.deleteProduct);
-  const addProductMilestoneMutation = useMutation(api.milestones.addProductMilestone);
-  const updateProductMilestoneMutation = useMutation(api.milestones.updateProductMilestone);
-  const deleteProductMilestoneMutation = useMutation(api.milestones.deleteProductMilestone);
+  const generateUploadUrl = useMutation(api.kits.generateUploadUrl);
+  const addProductFileMutation = useMutation(api.products.addProductFile);
+  const deleteProductFileMutation = useMutation(api.products.deleteProductFile);
+
+  const router = useRouter();
 
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState(getEmptyProduct);
-  const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
-  const [showMilestoneModal, setShowMilestoneModal] = useState(false);
-  const [milestoneProductId, setMilestoneProductId] = useState<string | null>(null);
-  const [newMilestone, setNewMilestone] = useState({
-    description: '',
-    targetDate: '',
-    notes: '',
-  });
   const [showSupplierSuggestions, setShowSupplierSuggestions] = useState(false);
   const [showCurrencySuggestions, setShowCurrencySuggestions] = useState(false);
   const [currencySearch, setCurrencySearch] = useState('');
+  const [showFinalProductSuggestions, setShowFinalProductSuggestions] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedSource, setSelectedSource] = useState<{ kitId: string; kitFinalProductId: string } | null>(null);
 
   // Get all unique suppliers from all products across all orders
   const allSuppliers = useQuery(api.products.getAllSuppliers) ?? [];
 
-  // Filter suppliers based on current input (max 3)
+  // Get all final products for autocomplete
+  const allFinalProducts = useQuery(api.kits.getAllFinalProductsForAutocomplete) ?? [];
+
+  // Get all product files for this order (for table column)
+  const allProductFiles = useQuery(api.products.getProductFilesByOrder, { orderId }) ?? {};
+
+  // Get all registered suppliers (for chat URLs)
+  const allRegisteredSuppliers = useQuery(api.suppliers.getAllSuppliers) ?? [];
+
+  // Get files for editing product (in modal)
+  const editingProductFiles = useQuery(
+    api.products.getProductFiles,
+    editingProduct ? { productId: editingProduct.productId } : "skip"
+  );
+
+  // Filter final products based on name input
+  const filteredFinalProducts = useMemo(() => {
+    if (!formData.name.trim()) return allFinalProducts;
+    const search = formData.name.toLowerCase();
+    return allFinalProducts.filter(
+      (fp) =>
+        fp.name.toLowerCase().includes(search) ||
+        fp.supplierName.toLowerCase().includes(search) ||
+        fp.kitName.toLowerCase().includes(search)
+    );
+  }, [formData.name, allFinalProducts]);
+
+  // Filter suppliers based on current input
   const filteredSuppliers = useMemo(() => {
-    if (!formData.supplier.trim()) return allSuppliers.slice(0, 3);
-    return allSuppliers
-      .filter((s) => s.toLowerCase().includes(formData.supplier.toLowerCase()))
-      .slice(0, 3);
+    if (!formData.supplier.trim()) return allSuppliers;
+    return allSuppliers.filter((s) =>
+      s.toLowerCase().includes(formData.supplier.toLowerCase())
+    );
   }, [formData.supplier, allSuppliers]);
 
   // Filter currencies based on search input
@@ -171,14 +189,12 @@ export default function ProductsTab({
     );
   }, [currencySearch]);
 
-  const getMilestonesForProduct = (productId: string) => {
-    return productMilestones.filter((m) => m.productId === productId);
-  };
-
   const openAddModal = () => {
     setEditingProduct(null);
     setFormData(getEmptyProduct());
     setCurrencySearch('');
+    setPendingFiles([]);
+    setSelectedSource(null);
     setShowModal(true);
   };
 
@@ -199,6 +215,8 @@ export default function ProductsTab({
       notes: product.notes || '',
     });
     setCurrencySearch('');
+    setPendingFiles([]);
+    setSelectedSource(null);
     setShowModal(true);
   };
 
@@ -260,8 +278,96 @@ export default function ProductsTab({
     });
   };
 
+  const handleSelectFinalProduct = (fp: typeof allFinalProducts[number]) => {
+    const qty = fp.quantity || 0;
+    const price = fp.pricePerUnit || 0;
+    const weightKg = (fp.weight || 0) / 1000;
+    const volumeM3 = fp.volume || 0;
+
+    setFormData({
+      ...formData,
+      name: fp.name,
+      supplier: fp.supplierName,
+      quantity: qty,
+      pricePerUnit: price,
+      priceTotal: qty * price,
+      cbmPerUnit: volumeM3,
+      cbmTotal: volumeM3 * qty,
+      kgPerUnit: weightKg,
+      kgTotal: weightKg * qty,
+    });
+    setSelectedSource({ kitId: fp.kitId, kitFinalProductId: fp.kitFinalProductId });
+    setShowFinalProductSuggestions(false);
+  };
+
+  const handleDeleteFile = async (fileId: string) => {
+    if (!(await confirm("האם למחוק את הקובץ?"))) return;
+    try {
+      await deleteProductFileMutation({ id: fileId as any });
+      showToast("קובץ נמחק", "success");
+    } catch (error) {
+      console.error("Error deleting file:", error);
+      showToast("שגיאה במחיקת קובץ", "error");
+    }
+  };
+
+  const handleAddPendingFiles = (files: FileList | File[]) => {
+    const newFiles = Array.from(files);
+    setPendingFiles((prev) => [...prev, ...newFiles]);
+  };
+
+  const handleRemovePendingFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleAddPendingFiles(e.dataTransfer.files);
+    }
+  }, []);
+
+  const uploadFilesForProduct = async (productId: string, files: File[]) => {
+    for (const file of files) {
+      try {
+        const uploadUrl = await generateUploadUrl();
+        const response = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        const { storageId } = await response.json();
+        await addProductFileMutation({
+          productId,
+          storageId,
+          fileName: file.name,
+          fileType: file.type,
+        });
+      } catch (error) {
+        console.error("Error uploading file:", error);
+        showToast("שגיאה בהעלאת קובץ", "error");
+      }
+    }
+  };
+
   const handleSubmit = async () => {
     try {
+      let targetProductId: string | undefined;
+
       if (editingProduct) {
         await updateProductMutation({
           productId: editingProduct.productId,
@@ -278,9 +384,10 @@ export default function ProductsTab({
           orderDate: formData.orderDate || undefined,
           notes: formData.notes || undefined,
         });
+        targetProductId = editingProduct.productId;
         showToast('מוצר עודכן בהצלחה', 'success');
       } else {
-        await addProductMutation({
+        const newProductId = await addProductMutation({
           orderId,
           name: formData.name,
           supplier: formData.supplier || undefined,
@@ -294,10 +401,20 @@ export default function ProductsTab({
           kgTotal: formData.kgTotal,
           orderDate: formData.orderDate || undefined,
           notes: formData.notes || undefined,
+          sourceKitId: selectedSource?.kitId,
+          sourceKitFinalProductId: selectedSource?.kitFinalProductId,
         });
+        targetProductId = newProductId;
         showToast('מוצר נוסף בהצלחה', 'success');
       }
 
+      // Upload pending files
+      if (targetProductId && pendingFiles.length > 0) {
+        await uploadFilesForProduct(targetProductId, pendingFiles);
+        showToast('קבצים הועלו בהצלחה', 'success');
+      }
+
+      setPendingFiles([]);
       setShowModal(false);
     } catch (error) {
       console.error('Error saving product:', error);
@@ -314,58 +431,6 @@ export default function ProductsTab({
     } catch (error) {
       console.error('Error deleting product:', error);
       showToast('שגיאה במחיקת מוצר', 'error');
-    }
-  };
-
-  const openMilestoneModal = (productId: string) => {
-    setMilestoneProductId(productId);
-    setNewMilestone({ description: '', targetDate: '', notes: '' });
-    setShowMilestoneModal(true);
-  };
-
-  const handleAddMilestone = async () => {
-    if (!milestoneProductId) return;
-
-    try {
-      await addProductMilestoneMutation({
-        productId: milestoneProductId,
-        milestoneTypeId: 'custom',
-        targetDate: newMilestone.targetDate || undefined,
-        status: newMilestone.description,
-        notes: newMilestone.notes || undefined,
-      });
-
-      showToast('מיילסטון נוסף בהצלחה', 'success');
-      setShowMilestoneModal(false);
-    } catch (error) {
-      console.error('Error adding milestone:', error);
-      showToast('שגיאה בהוספת מיילסטון', 'error');
-    }
-  };
-
-  const handleUpdateMilestone = async (milestoneId: string, actualDate: string) => {
-    try {
-      await updateProductMilestoneMutation({
-        milestoneId,
-        actualDate,
-      });
-
-      showToast('מיילסטון עודכן', 'success');
-    } catch (error) {
-      console.error('Error updating milestone:', error);
-      showToast('שגיאה בעדכון מיילסטון', 'error');
-    }
-  };
-
-  const handleDeleteMilestone = async (milestoneId: string) => {
-    if (!(await confirm('האם למחוק את המיילסטון?'))) return;
-
-    try {
-      await deleteProductMilestoneMutation({ milestoneId });
-      showToast('מיילסטון נמחק', 'success');
-    } catch (error) {
-      console.error('Error deleting milestone:', error);
-      showToast('שגיאה במחיקת מיילסטון', 'error');
     }
   };
 
@@ -388,41 +453,92 @@ export default function ProductsTab({
               <tr className="bg-gray-50 border-b">
                 <th className="text-right py-3 px-4 font-medium text-gray-600 w-10"></th>
                 <th className="text-right py-3 px-4 font-medium text-gray-600">שם</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-600">ספק</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-600">כמות</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-600">מחיר/יח</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-600">סה"כ</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-600">עלות סופית ₪</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-600">קבצים</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-600">פעולות</th>
               </tr>
             </thead>
             <tbody>
               {products.map((product) => {
-                const milestones = getMilestonesForProduct(product.productId);
-                const isExpanded = expandedProductId === product.productId;
-
                 return (
-                  <Fragment key={product.productId}>
-                    <tr
-                      className={`border-b hover:bg-gray-50 cursor-pointer ${isExpanded ? 'bg-blue-50' : ''}`}
-                      onClick={() => setExpandedProductId(isExpanded ? null : product.productId)}
-                    >
-                      <td className="py-3 px-4">
-                        <button
-                          className="p-1 rounded hover:bg-gray-200 transition-colors"
-                        >
-                          {isExpanded ? (
-                            <MinusIcon className="w-4 h-4 text-gray-600" />
-                          ) : (
-                            <PlusIcon className="w-4 h-4 text-gray-600" />
-                          )}
-                        </button>
-                      </td>
+                  <tr
+                    key={product.productId}
+                    className="border-b hover:bg-gray-50 cursor-pointer"
+                    onClick={() => router.push(`/orders/${orderId}/products/${product.productId}?from=products`)}
+                  >
+                    <td className="py-3 px-4">
+                      <ArrowLeftIcon className="w-4 h-4 text-gray-400" />
+                    </td>
                       <td className="py-3 px-4 font-medium">{product.name}</td>
+                      <td className="py-3 px-4">
+                        {product.supplier ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-gray-600">{product.supplier}</span>
+                            {(() => {
+                              const sup = allRegisteredSuppliers.find((s) => s.name === product.supplier);
+                              if (!sup?.alibabaChatUrl) return null;
+                              return (
+                                <a
+                                  href={sup.alibabaChatUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="p-0.5 text-orange-500 hover:text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                                  title="צ'אט עם הספק באליבאבא"
+                                >
+                                  <ChatBubbleLeftRightIcon className="w-4 h-4" />
+                                </a>
+                              );
+                            })()}
+                          </div>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
                       <td className="py-3 px-4">{product.quantity}</td>
                       <td className="py-3 px-4">{formatNumber(product.pricePerUnit)} {product.currency}</td>
                       <td className="py-3 px-4">{formatNumber(product.priceTotal)} {product.currency}</td>
                       <td className="py-3 px-4 font-semibold text-blue-600">
                         {formatCurrency(product.finalCostILS || 0)}
+                      </td>
+                      <td className="py-3 px-4">
+                        {(() => {
+                          const files = allProductFiles[product.productId];
+                          if (!files || files.length === 0) return <span className="text-gray-300">-</span>;
+                          const images = files.filter((f) => f.fileType.startsWith('image/'));
+                          const others = files.filter((f) => !f.fileType.startsWith('image/'));
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              {images.length > 0 && (
+                                <div className="flex -space-x-1.5">
+                                  {images.slice(0, 3).map((img) => (
+                                    <img
+                                      key={img._id}
+                                      src={img.url || ''}
+                                      alt={img.fileName}
+                                      className="w-7 h-7 rounded border-2 border-white object-cover"
+                                    />
+                                  ))}
+                                  {images.length > 3 && (
+                                    <span className="flex items-center justify-center w-7 h-7 rounded border-2 border-white bg-gray-100 text-xs text-gray-500 font-medium">
+                                      +{images.length - 3}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {others.length > 0 && (
+                                <span className="flex items-center gap-0.5 text-xs text-gray-500">
+                                  <PaperClipIcon className="w-3.5 h-3.5" />
+                                  {others.length}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                         <div className="flex gap-1">
@@ -441,229 +557,6 @@ export default function ProductsTab({
                         </div>
                       </td>
                     </tr>
-                    {isExpanded && (
-                      <tr key={`${product.productId}-details`}>
-                        <td colSpan={7} className="bg-gray-50 px-6 py-4">
-                          {/* Product Details Section */}
-                          <div className="grid grid-cols-2 gap-6 mb-6">
-                            {/* Right Column - Basic Info */}
-                            <div className="bg-white rounded-lg p-4 border">
-                              <h4 className="text-sm font-semibold text-gray-800 mb-3 border-b pb-2">פרטי מוצר</h4>
-                              <div className="space-y-2 text-sm">
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">ספק:</span>
-                                  <span className="font-medium">{product.supplier || '-'}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">תאריך הזמנה:</span>
-                                  <span className="font-medium">{product.orderDate ? formatDate(product.orderDate) : '-'}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">CBM ליחידה:</span>
-                                  <span className="font-medium">{formatNumber(product.cbmPerUnit, 3)}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">CBM סה"כ:</span>
-                                  <span className="font-medium">{formatNumber(product.cbmTotal, 3)}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">KG ליחידה:</span>
-                                  <span className="font-medium">{formatNumber(product.kgPerUnit, 1)}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">KG סה"כ:</span>
-                                  <span className="font-medium">{formatNumber(product.kgTotal, 1)}</span>
-                                </div>
-                                {product.notes && (
-                                  <div className="flex justify-between border-t pt-2">
-                                    <span className="text-gray-500">הערות:</span>
-                                    <span className="font-medium">{product.notes}</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Left Column - Cost Breakdown */}
-                            <div className="bg-white rounded-lg p-4 border">
-                              <h4 className="text-sm font-semibold text-gray-800 mb-3 border-b pb-2">פירוט עלויות</h4>
-                              <div className="space-y-2 text-sm">
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">עלות מקורית:</span>
-                                  <span className="font-medium">{formatCurrency(product.priceILS || 0)}</span>
-                                </div>
-                                <div className="flex justify-between text-orange-600">
-                                  <span>עלויות נוספות:</span>
-                                  <span className="font-medium">+ {formatCurrency(product.additionalCostsILS || 0)}</span>
-                                </div>
-                                <div className="flex justify-between border-t pt-2 font-semibold">
-                                  <span className="text-gray-700">עלות סופית:</span>
-                                  <span className="text-blue-600">{formatCurrency(product.finalCostILS || 0)}</span>
-                                </div>
-                                <div className="flex justify-between text-blue-600">
-                                  <span>עלות סופית ליחידה:</span>
-                                  <span className="font-semibold">{formatCurrency(product.finalCostPerUnitILS || 0)}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Milestones Section */}
-                          <div className="bg-white rounded-lg p-4 border">
-                            <div className="flex items-center justify-between mb-4">
-                              <h4 className="text-sm font-semibold text-gray-800">מיילסטונים</h4>
-                              <Button
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openMilestoneModal(product.productId);
-                                }}
-                              >
-                                <PlusIcon className="w-3 h-3" />
-                                הוסף מיילסטון
-                              </Button>
-                            </div>
-                            {milestones.length === 0 ? (
-                              <p className="text-sm text-gray-500 text-center py-4">
-                                אין מיילסטונים - הוסף מיילסטון ראשון למעקב התקדמות
-                              </p>
-                            ) : (
-                            <div className="py-4" dir="ltr">
-                              {/* Progress Steps */}
-                              <div className="relative">
-                                {/* Background line */}
-                                <div className="absolute top-5 left-0 right-0 h-1 bg-gray-200" />
-
-                                {/* Progress line */}
-                                {(() => {
-                                  const sorted = [...milestones].sort((a, b) => {
-                                    const dateA = a.targetDate || a.actualDate || '';
-                                    const dateB = b.targetDate || b.actualDate || '';
-                                    return dateA.localeCompare(dateB);
-                                  });
-                                  const today = new Date().toISOString().split('T')[0];
-                                  let lastCompletedIndex = -1;
-                                  let lastOverdueIndex = -1;
-                                  sorted.forEach((m, i) => {
-                                    if (m.actualDate) lastCompletedIndex = i;
-                                    else if (m.targetDate && m.targetDate < today) lastOverdueIndex = i;
-                                  });
-
-                                  return (
-                                    <>
-                                      {lastCompletedIndex >= 0 && (
-                                        <div
-                                          className="absolute top-5 left-0 h-1 bg-green-500 transition-all"
-                                          style={{ width: `${((lastCompletedIndex + 0.5) / sorted.length) * 100}%` }}
-                                        />
-                                      )}
-                                      {lastOverdueIndex > lastCompletedIndex && (
-                                        <div
-                                          className="absolute top-5 h-1 bg-red-500 transition-all"
-                                          style={{
-                                            left: `${((lastCompletedIndex + 0.5) / sorted.length) * 100}%`,
-                                            width: `${((lastOverdueIndex - lastCompletedIndex) / sorted.length) * 100}%`
-                                          }}
-                                        />
-                                      )}
-                                    </>
-                                  );
-                                })()}
-
-                                {/* Milestones */}
-                                <div className="relative flex justify-between">
-                                  {milestones
-                                    .sort((a, b) => {
-                                      const dateA = a.targetDate || a.actualDate || '';
-                                      const dateB = b.targetDate || b.actualDate || '';
-                                      return dateA.localeCompare(dateB);
-                                    })
-                                    .map((milestone, index, arr) => {
-                                      const isCompleted = !!milestone.actualDate;
-                                      const today = new Date().toISOString().split('T')[0];
-                                      const isOverdue = !isCompleted && milestone.targetDate && milestone.targetDate < today;
-
-                                      const getCircleClasses = () => {
-                                        if (isCompleted) return 'bg-green-500 border-green-500 text-white';
-                                        if (isOverdue) return 'bg-red-500 border-red-500 text-white';
-                                        return 'bg-white border-gray-300 text-gray-400';
-                                      };
-
-                                      return (
-                                        <div
-                                          key={milestone.milestoneId}
-                                          className="flex flex-col items-center group relative"
-                                          style={{ width: `${100 / arr.length}%` }}
-                                        >
-                                          {/* Circle */}
-                                          <div
-                                            className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border-4 transition-all z-10 ${getCircleClasses()}`}
-                                          >
-                                            {isCompleted ? (
-                                              <CheckCircleIcon className="w-6 h-6" />
-                                            ) : isOverdue ? (
-                                              <ClockIcon className="w-5 h-5" />
-                                            ) : (
-                                              <span className="text-sm font-bold">{index + 1}</span>
-                                            )}
-                                          </div>
-
-                                          {/* Label */}
-                                          <div className="text-center mt-2">
-                                            <p
-                                              className={`text-sm font-medium ${
-                                                isCompleted ? 'text-green-700' : isOverdue ? 'text-red-600' : 'text-gray-600'
-                                              }`}
-                                            >
-                                              {milestone.status}
-                                            </p>
-                                            <p className={`text-xs mt-0.5 ${isOverdue ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
-                                              {milestone.actualDate
-                                                ? formatDate(milestone.actualDate)
-                                                : milestone.targetDate
-                                                ? formatDate(milestone.targetDate)
-                                                : ''}
-                                            </p>
-                                            {isOverdue && (
-                                              <p className="text-xs text-red-500 font-medium">באיחור</p>
-                                            )}
-                                          </div>
-
-                                          {/* Actions on hover */}
-                                          <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 bg-white shadow-lg rounded-lg p-1 border z-20">
-                                            {!isCompleted && (
-                                              <button
-                                                onClick={() =>
-                                                  handleUpdateMilestone(
-                                                    milestone.milestoneId,
-                                                    new Date().toISOString().split('T')[0]
-                                                  )
-                                                }
-                                                className="p-1.5 text-green-600 hover:bg-green-50 rounded"
-                                                title="סמן כהושלם"
-                                              >
-                                                <CheckCircleIcon className="w-4 h-4" />
-                                              </button>
-                                            )}
-                                            <button
-                                              onClick={() => handleDeleteMilestone(milestone.milestoneId)}
-                                              className="p-1.5 text-red-500 hover:bg-red-50 rounded"
-                                              title="מחק"
-                                            >
-                                              <TrashIcon className="w-4 h-4" />
-                                            </button>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                </div>
-                              </div>
-                            </div>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
                 );
               })}
             </tbody>
@@ -681,13 +574,48 @@ export default function ProductsTab({
         <div className="space-y-4">
           {/* Row 1: Basic Info - Name, Supplier */}
           <div className="grid grid-cols-2 gap-4">
-            <Input
-              id="name"
-              label="שם המוצר"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              required
-            />
+            <div className="relative">
+              <Input
+                id="name"
+                label="שם המוצר"
+                value={formData.name}
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value });
+                  if (!editingProduct) setShowFinalProductSuggestions(true);
+                }}
+                onFocus={() => {
+                  if (!editingProduct) setShowFinalProductSuggestions(true);
+                }}
+                onBlur={() => setTimeout(() => setShowFinalProductSuggestions(false), 200)}
+                autoComplete="off"
+                required
+              />
+              {showFinalProductSuggestions && !editingProduct && filteredFinalProducts.length > 0 && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                  <div className="px-3 py-1.5 text-xs text-gray-400 border-b bg-gray-50 rounded-t-lg">
+                    מוצרים מרכישה סופית
+                  </div>
+                  {filteredFinalProducts.map((fp) => (
+                    <button
+                      key={fp.kitFinalProductId}
+                      type="button"
+                      className="w-full px-3 py-2 text-right text-sm hover:bg-blue-50 border-b last:border-b-0 last:rounded-b-lg"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSelectFinalProduct(fp);
+                      }}
+                    >
+                      <div className="font-medium text-gray-900">{fp.name}</div>
+                      <div className="flex gap-3 text-xs text-gray-500 mt-0.5">
+                        {fp.supplierName && <span>ספק: {fp.supplierName}</span>}
+                        {fp.kitName && <span>ערכה: {fp.kitName}</span>}
+                        {fp.pricePerUnit != null && <span>מחיר: {formatNumber(fp.pricePerUnit)}</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="relative">
               <Input
                 id="supplier"
@@ -699,7 +627,7 @@ export default function ProductsTab({
                 autoComplete="off"
               />
               {showSupplierSuggestions && filteredSuppliers.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                   {filteredSuppliers.map((supplier) => (
                     <button
                       key={supplier}
@@ -849,6 +777,114 @@ export default function ProductsTab({
             />
           </div>
 
+          {/* Files & Photos */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">קבצים ותמונות</label>
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
+                isDragging
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    handleAddPendingFiles(e.target.files);
+                    e.target.value = '';
+                  }
+                }}
+              />
+              <PaperClipIcon className="w-6 h-6 text-gray-400 mx-auto mb-1" />
+              <p className="text-sm text-gray-500">
+                {isDragging ? 'שחרר כאן להעלאה' : 'גרור קבצים לכאן או לחץ לבחירה'}
+              </p>
+            </div>
+
+            {/* Existing files (edit mode) */}
+            {editingProduct && editingProductFiles && editingProductFiles.length > 0 && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-gray-500 font-medium">קבצים קיימים:</p>
+                <div className="flex flex-wrap gap-2">
+                  {editingProductFiles.map((file) => {
+                    const isImage = file.fileType.startsWith('image/');
+                    return (
+                      <div
+                        key={file._id}
+                        className="relative group flex items-center gap-2 bg-gray-50 border rounded-lg px-2 py-1.5"
+                      >
+                        {isImage && file.url ? (
+                          <a href={file.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                            <img src={file.url} alt={file.fileName} className="w-8 h-8 rounded object-cover" />
+                            <span className="text-xs text-gray-700 max-w-[120px] truncate">{file.fileName}</span>
+                          </a>
+                        ) : (
+                          <a href={file.url || '#'} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                            <ArrowDownTrayIcon className="w-4 h-4 text-gray-400" />
+                            <span className="text-xs text-gray-700 max-w-[120px] truncate">{file.fileName}</span>
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteFile(file._id);
+                          }}
+                          className="p-0.5 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <XMarkIcon className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Pending files preview */}
+            {pendingFiles.length > 0 && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-gray-500 font-medium">קבצים להעלאה:</p>
+                <div className="flex flex-wrap gap-2">
+                  {pendingFiles.map((file, index) => {
+                    const isImage = file.type.startsWith('image/');
+                    return (
+                      <div
+                        key={`${file.name}-${index}`}
+                        className="relative group flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5"
+                      >
+                        {isImage ? (
+                          <PhotoIcon className="w-4 h-4 text-blue-500" />
+                        ) : (
+                          <PaperClipIcon className="w-4 h-4 text-blue-500" />
+                        )}
+                        <span className="text-xs text-gray-700 max-w-[120px] truncate">{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemovePendingFile(index);
+                          }}
+                          className="p-0.5 text-red-400 hover:text-red-600"
+                        >
+                          <XMarkIcon className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-end gap-3 pt-4">
             <Button variant="secondary" onClick={() => setShowModal(false)}>
               ביטול
@@ -860,53 +896,6 @@ export default function ProductsTab({
         </div>
       </Modal>
 
-      {/* Milestone Modal */}
-      <Modal
-        isOpen={showMilestoneModal}
-        onClose={() => setShowMilestoneModal(false)}
-        title="הוסף מיילסטון למוצר"
-      >
-        <div className="space-y-4">
-          <Input
-            id="milestone_description"
-            label="תיאור"
-            value={newMilestone.description}
-            onChange={(e) =>
-              setNewMilestone({ ...newMilestone, description: e.target.value })
-            }
-            placeholder="לדוגמה: יצא מסין, הגיע לנמל"
-            required
-          />
-
-          <Input
-            id="milestone_target_date"
-            label="תאריך יעד"
-            type="date"
-            value={newMilestone.targetDate}
-            onChange={(e) =>
-              setNewMilestone({ ...newMilestone, targetDate: e.target.value })
-            }
-          />
-
-          <Input
-            id="milestone_notes"
-            label="הערות"
-            value={newMilestone.notes}
-            onChange={(e) =>
-              setNewMilestone({ ...newMilestone, notes: e.target.value })
-            }
-          />
-
-          <div className="flex justify-end gap-3 pt-4">
-            <Button variant="secondary" onClick={() => setShowMilestoneModal(false)}>
-              ביטול
-            </Button>
-            <Button onClick={handleAddMilestone} disabled={!newMilestone.description}>
-              הוסף
-            </Button>
-          </div>
-        </div>
-      </Modal>
       {ConfirmDialog}
     </div>
   );

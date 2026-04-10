@@ -19,6 +19,7 @@ import {
   XMarkIcon,
   ArrowDownTrayIcon,
   CubeIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
 import { Doc, Id } from '../../../convex/_generated/dataModel';
 
@@ -148,8 +149,11 @@ export default function FinalPurchaseTab({
   const generateUploadUrlMutation = useMutation(api.kits.generateUploadUrl);
   const addFileMutation = useMutation(api.kits.addFinalProductFile);
   const deleteFileMutation = useMutation(api.kits.deleteFinalProductFile);
+  const updateSupplierMutation = useMutation(api.suppliers.updateSupplier);
 
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [chatUrlModal, setChatUrlModal] = useState<{ supplierId: string; currentUrl: string } | null>(null);
+  const [chatUrlInput, setChatUrlInput] = useState('');
 
   // Debounced target kit count
   const [localTargetKitCount, setLocalTargetKitCount] = useState(targetKitCount?.toString() ?? '');
@@ -199,6 +203,12 @@ export default function FinalPurchaseTab({
     if (!supplierId) return '-';
     const allSups = [...suppliers, ...allSuppliers];
     return allSups.find((s) => s.supplierId === supplierId)?.name || '-';
+  };
+
+  const getSupplierChatUrl = (supplierId: string | undefined) => {
+    if (!supplierId) return undefined;
+    const allSups = [...suppliers, ...allSuppliers];
+    return allSups.find((s) => s.supplierId === supplierId)?.alibabaChatUrl;
   };
 
   const getProductName = (kitProductId: string) => {
@@ -637,7 +647,37 @@ export default function FinalPurchaseTab({
                       }}
                     />
                   </td>
-                  <td className="px-3 py-3 text-gray-600">{getSupplierName(fp.supplierId)}</td>
+                  <td className="px-3 py-3 text-gray-600">
+                    <div className="flex items-center gap-1.5">
+                      <span>{getSupplierName(fp.supplierId)}</span>
+                      {fp.supplierId && (
+                        getSupplierChatUrl(fp.supplierId) ? (
+                          <a
+                            href={getSupplierChatUrl(fp.supplierId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="p-0.5 text-orange-500 hover:text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                            title="צ'אט עם הספק באליבאבא"
+                          >
+                            <ChatBubbleLeftRightIcon className="w-4 h-4" />
+                          </a>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setChatUrlInput('');
+                              setChatUrlModal({ supplierId: fp.supplierId!, currentUrl: '' });
+                            }}
+                            className="p-0.5 text-gray-300 hover:text-orange-500 hover:bg-orange-50 rounded transition-colors"
+                            title="הוסף קישור לצ'אט באליבאבא"
+                          >
+                            <ChatBubbleLeftRightIcon className="w-4 h-4" />
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </td>
                   <td className="px-3 py-3 text-gray-900">{fp.pricePerUnit != null ? `$${formatNumber(fp.pricePerUnit, 3)}` : '-'}</td>
                   <td className={`px-3 py-3 font-medium ${belowMoq ? 'text-red-700' : 'text-gray-900'}`}>{rowTotal > 0 ? `$${formatNumber(rowTotal)}` : '-'}</td>
                   <td className="px-3 py-3 text-gray-600">{fp.weight != null ? formatNumber(fp.weight, 0) : '-'}</td>
@@ -1040,6 +1080,48 @@ export default function FinalPurchaseTab({
         </div>
       </Modal>
       {ConfirmDialog}
+
+      {/* Alibaba Chat URL Modal */}
+      <Modal
+        isOpen={!!chatUrlModal}
+        onClose={() => setChatUrlModal(null)}
+        title="קישור לצ'אט באליבאבא"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">הדבק את הקישור לצ'אט עם הספק באליבאבא</p>
+          <Input
+            id="alibaba_chat_url"
+            label="קישור"
+            value={chatUrlInput}
+            onChange={(e) => setChatUrlInput(e.target.value)}
+            placeholder="https://message.alibaba.com/message/messenger.htm?..."
+          />
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setChatUrlModal(null)}>
+              ביטול
+            </Button>
+            <Button
+              disabled={!chatUrlInput.trim()}
+              onClick={async () => {
+                if (!chatUrlModal) return;
+                try {
+                  await updateSupplierMutation({
+                    supplierId: chatUrlModal.supplierId,
+                    alibabaChatUrl: chatUrlInput.trim(),
+                  });
+                  showToast('קישור צ\'אט נשמר', 'success');
+                  setChatUrlModal(null);
+                } catch (error) {
+                  console.error('Error saving chat URL:', error);
+                  showToast('שגיאה בשמירת קישור', 'error');
+                }
+              }}
+            >
+              שמור
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Lightbox */}
       {lightboxUrl && (

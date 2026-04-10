@@ -37,6 +37,7 @@ export const addSupplier = mutation({
     phone: v.optional(v.string()),
     country: v.optional(v.string()),
     notes: v.optional(v.string()),
+    alibabaChatUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const supplierId = generateId("SUP");
@@ -49,6 +50,7 @@ export const addSupplier = mutation({
       phone: args.phone,
       country: args.country,
       notes: args.notes,
+      alibabaChatUrl: args.alibabaChatUrl,
       createdDate: new Date().toISOString(),
     });
 
@@ -100,6 +102,7 @@ export const updateSupplier = mutation({
     phone: v.optional(v.string()),
     country: v.optional(v.string()),
     notes: v.optional(v.string()),
+    alibabaChatUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const supplier = await ctx.db
@@ -116,6 +119,7 @@ export const updateSupplier = mutation({
     if (args.phone !== undefined) updates.phone = args.phone;
     if (args.country !== undefined) updates.country = args.country;
     if (args.notes !== undefined) updates.notes = args.notes;
+    if (args.alibabaChatUrl !== undefined) updates.alibabaChatUrl = args.alibabaChatUrl;
 
     await ctx.db.patch(supplier._id, updates);
     return true;
