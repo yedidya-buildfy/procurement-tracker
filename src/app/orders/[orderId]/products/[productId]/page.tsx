@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, use, useRef, useCallback } from 'react';
+import { useState, useEffect, use, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation } from 'convex/react';
@@ -47,6 +47,7 @@ export default function ProductPage({
   const productFiles = useQuery(api.products.getProductFiles, { productId });
   const allRegisteredSuppliers = useQuery(api.suppliers.getAllSuppliers) ?? [];
   const deleteProductMutation = useMutation(api.products.deleteProduct);
+  const updateProductMutation = useMutation(api.products.updateProduct);
   const generateUploadUrl = useMutation(api.kits.generateUploadUrl);
   const addProductFileMutation = useMutation(api.products.addProductFile);
   const deleteProductFileMutation = useMutation(api.products.deleteProductFile);
@@ -54,10 +55,167 @@ export default function ProductPage({
   const updateMilestoneMutation = useMutation(api.milestones.updateProductMilestone);
   const deleteMilestoneMutation = useMutation(api.milestones.deleteProductMilestone);
 
+  const seedMilestoneType = useMutation(api.milestones.seedMilestoneType);
+  const seededRef = useRef(false);
+
+  useEffect(() => {
+    if (!seededRef.current) {
+      seededRef.current = true;
+      seedMilestoneType({
+        typeId: 'products_ready',
+        name: 'מוצרים מוכנים',
+        level: 'product',
+        defaultOrder: 100,
+        color: '#f59e0b',
+      });
+    }
+  }, [seedMilestoneType]);
+
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [newMilestone, setNewMilestone] = useState({ description: '', targetDate: '', notes: '' });
+  const [editingMilestoneDate, setEditingMilestoneDate] = useState<{ milestoneId: string; targetDate: string } | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    supplier: '',
+    quantity: 0,
+    pricePerUnit: 0,
+    priceTotal: 0,
+    currency: 'USD',
+    cbmPerUnit: 0,
+    cbmTotal: 0,
+    kgPerUnit: 0,
+    kgTotal: 0,
+    orderDate: '',
+    leadTimeDays: '' as number | '',
+    notes: '',
+  });
+  const [showEditSupplierSuggestions, setShowEditSupplierSuggestions] = useState(false);
+  const [showEditCurrencySuggestions, setShowEditCurrencySuggestions] = useState(false);
+  const [editCurrencySearch, setEditCurrencySearch] = useState('');
+  const [editingMilestoneStatus, setEditingMilestoneStatus] = useState<{ milestoneId: string; status: string } | null>(null);
+
+  const handleSaveMilestoneStatus = async () => {
+    if (!editingMilestoneStatus) return;
+    try {
+      await updateMilestoneMutation({
+        milestoneId: editingMilestoneStatus.milestoneId,
+        status: editingMilestoneStatus.status,
+      });
+      showToast('מיילסטון עודכן', 'success');
+      setEditingMilestoneStatus(null);
+    } catch (error) {
+      console.error('Error updating milestone:', error);
+      showToast('שגיאה בעדכון מיילסטון', 'error');
+    }
+  };
+
+  const CURRENCIES = [
+    { value: 'USD', label: 'USD ($)' }, { value: 'EUR', label: 'EUR (€)' },
+    { value: 'GBP', label: 'GBP (£)' }, { value: 'CNY', label: 'CNY (¥)' },
+    { value: 'ILS', label: 'ILS (₪)' }, { value: 'JPY', label: 'JPY (¥)' },
+  ];
+
+  const filteredEditCurrencies = CURRENCIES.filter((c) =>
+    !editCurrencySearch || c.label.toLowerCase().includes(editCurrencySearch.toLowerCase()) || c.value.toLowerCase().includes(editCurrencySearch.toLowerCase())
+  );
+
+  const allSupplierNames = allRegisteredSuppliers.map((s) => s.name);
+  const filteredEditSuppliers = allSupplierNames.filter((s) =>
+    s.toLowerCase().includes(editForm.supplier.toLowerCase())
+  );
+
+  const openEditModal = () => {
+    if (!data) return;
+    const p = data.products.find((pr) => pr.productId === productId);
+    if (!p) return;
+    setEditForm({
+      name: p.name,
+      supplier: p.supplier || '',
+      quantity: p.quantity,
+      pricePerUnit: p.pricePerUnit,
+      priceTotal: p.priceTotal,
+      currency: p.currency,
+      cbmPerUnit: p.cbmPerUnit,
+      cbmTotal: p.cbmTotal,
+      kgPerUnit: p.kgPerUnit,
+      kgTotal: p.kgTotal,
+      orderDate: p.orderDate || '',
+      leadTimeDays: p.leadTimeDays ?? '',
+      notes: p.notes || '',
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditQuantityChange = (qty: number) => {
+    setEditForm((prev) => ({
+      ...prev,
+      quantity: qty,
+      priceTotal: parseFloat((qty * prev.pricePerUnit).toFixed(2)),
+      cbmTotal: parseFloat((qty * prev.cbmPerUnit).toFixed(6)),
+      kgTotal: parseFloat((qty * prev.kgPerUnit).toFixed(2)),
+    }));
+  };
+
+  const handleEditPricePerUnitChange = (price: number) => {
+    setEditForm((prev) => ({
+      ...prev,
+      pricePerUnit: price,
+      priceTotal: parseFloat((prev.quantity * price).toFixed(2)),
+    }));
+  };
+
+  const handleEditPriceTotalChange = (total: number) => {
+    setEditForm((prev) => ({
+      ...prev,
+      priceTotal: total,
+      pricePerUnit: prev.quantity > 0 ? parseFloat((total / prev.quantity).toFixed(4)) : 0,
+    }));
+  };
+
+  const handleEditCbmPerUnitChange = (cbm: number) => {
+    setEditForm((prev) => ({
+      ...prev,
+      cbmPerUnit: cbm,
+      cbmTotal: parseFloat((prev.quantity * cbm).toFixed(6)),
+    }));
+  };
+
+  const handleEditKgPerUnitChange = (kg: number) => {
+    setEditForm((prev) => ({
+      ...prev,
+      kgPerUnit: kg,
+      kgTotal: parseFloat((prev.quantity * kg).toFixed(2)),
+    }));
+  };
+
+  const handleSaveProduct = async () => {
+    try {
+      await updateProductMutation({
+        productId,
+        name: editForm.name,
+        supplier: editForm.supplier,
+        quantity: editForm.quantity,
+        pricePerUnit: editForm.pricePerUnit,
+        priceTotal: editForm.priceTotal,
+        currency: editForm.currency,
+        cbmPerUnit: editForm.cbmPerUnit,
+        cbmTotal: editForm.cbmTotal,
+        kgPerUnit: editForm.kgPerUnit,
+        kgTotal: editForm.kgTotal,
+        orderDate: editForm.orderDate || undefined,
+        leadTimeDays: editForm.leadTimeDays === '' ? undefined : editForm.leadTimeDays,
+        notes: editForm.notes,
+      });
+      showToast('מוצר עודכן בהצלחה', 'success');
+      setShowEditModal(false);
+    } catch (error) {
+      console.error('Error updating product:', error);
+      showToast('שגיאה בעדכון מוצר', 'error');
+    }
+  };
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -156,6 +314,17 @@ export default function ProductPage({
     }
   };
 
+  const handleUpdateMilestoneTargetDate = async (milestoneId: string, targetDate: string) => {
+    try {
+      await updateMilestoneMutation({ milestoneId, targetDate });
+      setEditingMilestoneDate(null);
+      showToast('תאריך יעד עודכן', 'success');
+    } catch (error) {
+      console.error('Error updating milestone target date:', error);
+      showToast('שגיאה בעדכון תאריך יעד', 'error');
+    }
+  };
+
   const handleDeleteMilestone = async (milestoneId: string) => {
     if (!(await confirm('האם למחוק את המיילסטון?'))) return;
     try {
@@ -219,6 +388,14 @@ export default function ProductPage({
             </div>
 
             <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={openEditModal}
+                className="text-gray-600 hover:bg-gray-100"
+              >
+                <PencilIcon className="w-4 h-4" />
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -343,6 +520,10 @@ export default function ProductPage({
               <div className="flex justify-between">
                 <span className="text-gray-500">תאריך הזמנה</span>
                 <span className="font-medium">{product.orderDate ? formatDate(product.orderDate) : '-'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">זמן אספקה</span>
+                <span className="font-medium">{product.leadTimeDays ? `${product.leadTimeDays} ימים` : '-'}</span>
               </div>
               <hr />
               <div className="flex justify-between">
@@ -553,10 +734,12 @@ export default function ProductPage({
                       const today = new Date().toISOString().split('T')[0];
                       const isOverdue =
                         !isCompleted && milestone.targetDate && milestone.targetDate < today;
+                      const isAutoMilestone = milestone.milestoneTypeId === 'products_ready';
 
                       const getCircleClasses = () => {
                         if (isCompleted) return 'bg-green-500 border-green-500 text-white';
                         if (isOverdue) return 'bg-red-500 border-red-500 text-white';
+                        if (isAutoMilestone) return 'bg-amber-50 border-amber-400 text-amber-600';
                         return 'bg-white border-gray-300 text-gray-400';
                       };
 
@@ -579,30 +762,79 @@ export default function ProductPage({
                           </div>
 
                           <div className="text-center mt-2">
-                            <p
-                              className={`text-sm font-medium ${
-                                isCompleted
-                                  ? 'text-green-700'
-                                  : isOverdue
-                                  ? 'text-red-600'
-                                  : 'text-gray-600'
-                              }`}
-                            >
-                              {milestone.status}
-                            </p>
-                            <p
-                              className={`text-xs mt-0.5 ${
-                                isOverdue ? 'text-red-500 font-medium' : 'text-gray-400'
-                              }`}
-                            >
-                              {milestone.actualDate
-                                ? formatDate(milestone.actualDate)
-                                : milestone.targetDate
-                                ? formatDate(milestone.targetDate)
-                                : ''}
-                            </p>
+                            {editingMilestoneStatus?.milestoneId === milestone.milestoneId ? (
+                              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="text"
+                                  value={editingMilestoneStatus.status}
+                                  onChange={(e) => setEditingMilestoneStatus({ ...editingMilestoneStatus, status: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSaveMilestoneStatus();
+                                    if (e.key === 'Escape') setEditingMilestoneStatus(null);
+                                  }}
+                                  className="w-32 border rounded px-2 py-0.5 text-sm"
+                                  autoFocus
+                                />
+                                <button onClick={handleSaveMilestoneStatus} className="p-0.5 text-green-600">
+                                  <CheckCircleIcon className="w-3.5 h-3.5" />
+                                </button>
+                                <button onClick={() => setEditingMilestoneStatus(null)} className="p-0.5 text-gray-400">
+                                  <XMarkIcon className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <p
+                                className={`text-sm font-medium ${
+                                  isCompleted
+                                    ? 'text-green-700'
+                                    : isOverdue
+                                    ? 'text-red-600'
+                                    : 'text-gray-600'
+                                }`}
+                              >
+                                {milestone.status}
+                              </p>
+                            )}
+                            {editingMilestoneDate?.milestoneId === milestone.milestoneId ? (
+                              <input
+                                type="date"
+                                className="text-xs mt-1 border border-blue-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                value={editingMilestoneDate.targetDate}
+                                onChange={(e) => setEditingMilestoneDate({ ...editingMilestoneDate, targetDate: e.target.value })}
+                                onBlur={() => {
+                                  if (editingMilestoneDate.targetDate) {
+                                    handleUpdateMilestoneTargetDate(milestone.milestoneId, editingMilestoneDate.targetDate);
+                                  } else {
+                                    setEditingMilestoneDate(null);
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && editingMilestoneDate.targetDate) {
+                                    handleUpdateMilestoneTargetDate(milestone.milestoneId, editingMilestoneDate.targetDate);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingMilestoneDate(null);
+                                  }
+                                }}
+                                autoFocus
+                              />
+                            ) : (
+                              <p
+                                className={`text-xs mt-0.5 ${
+                                  isOverdue ? 'text-red-500 font-medium' : 'text-gray-400'
+                                }`}
+                              >
+                                {milestone.actualDate
+                                  ? formatDate(milestone.actualDate)
+                                  : milestone.targetDate
+                                  ? formatDate(milestone.targetDate)
+                                  : ''}
+                              </p>
+                            )}
                             {isOverdue && (
                               <p className="text-xs text-red-500 font-medium">באיחור</p>
+                            )}
+                            {isAutoMilestone && product.leadTimeDays && (
+                              <p className="text-xs text-amber-500 mt-0.5">{product.leadTimeDays} ימים מההזמנה</p>
                             )}
                           </div>
 
@@ -623,6 +855,20 @@ export default function ProductPage({
                               </button>
                             )}
                             <button
+                              onClick={() => setEditingMilestoneStatus({ milestoneId: milestone.milestoneId, status: milestone.status || '' })}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                              title="ערוך תיאור"
+                            >
+                              <PencilIcon className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setEditingMilestoneDate({ milestoneId: milestone.milestoneId, targetDate: milestone.targetDate || '' })}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                              title="ערוך תאריך יעד"
+                            >
+                              <ClockIcon className="w-4 h-4" />
+                            </button>
+                            <button
                               onClick={() => handleDeleteMilestone(milestone.milestoneId)}
                               className="p-1.5 text-red-500 hover:bg-red-50 rounded"
                               title="מחק"
@@ -639,6 +885,196 @@ export default function ProductPage({
           )}
         </div>
       </main>
+
+      {/* Edit Product Modal */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="עריכת מוצר"
+        size="xl"
+      >
+        <div className="space-y-4">
+          {/* Name & Supplier */}
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              id="edit_name"
+              label="שם המוצר"
+              value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+              required
+            />
+            <div className="relative">
+              <Input
+                id="edit_supplier"
+                label="ספק"
+                value={editForm.supplier}
+                onChange={(e) => setEditForm({ ...editForm, supplier: e.target.value })}
+                onFocus={() => setShowEditSupplierSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowEditSupplierSuggestions(false), 150)}
+                autoComplete="off"
+              />
+              {showEditSupplierSuggestions && filteredEditSuppliers.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                  {filteredEditSuppliers.map((supplier) => (
+                    <button
+                      key={supplier}
+                      type="button"
+                      className="w-full px-3 py-2 text-right text-sm hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setEditForm({ ...editForm, supplier });
+                        setShowEditSupplierSuggestions(false);
+                      }}
+                    >
+                      {supplier}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <hr className="border-gray-200" />
+
+          {/* Quantity */}
+          <Input
+            id="edit_quantity"
+            label="כמות"
+            type="number"
+            value={editForm.quantity}
+            onChange={(e) => handleEditQuantityChange(parseFloat(e.target.value) || 0)}
+          />
+
+          {/* Price Row */}
+          <div className="flex gap-4">
+            <div className="relative w-24 flex-shrink-0">
+              <label className="block text-sm font-medium text-gray-700 mb-1">מטבע</label>
+              <input
+                type="text"
+                value={editCurrencySearch || editForm.currency}
+                onChange={(e) => setEditCurrencySearch(e.target.value)}
+                onFocus={() => { setShowEditCurrencySuggestions(true); setEditCurrencySearch(''); }}
+                onBlur={() => setTimeout(() => setShowEditCurrencySuggestions(false), 150)}
+                className="w-full px-2 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                autoComplete="off"
+              />
+              {showEditCurrencySuggestions && (
+                <div className="absolute z-20 w-32 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {filteredEditCurrencies.map((currency) => (
+                    <button
+                      key={currency.value}
+                      type="button"
+                      className="w-full px-3 py-2 text-right text-sm hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setEditForm({ ...editForm, currency: currency.value });
+                        setEditCurrencySearch('');
+                        setShowEditCurrencySuggestions(false);
+                      }}
+                    >
+                      {currency.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex-1">
+              <Input
+                id="edit_pricePerUnit"
+                label="מחיר ליחידה"
+                type="number"
+                step="0.01"
+                value={editForm.pricePerUnit}
+                onChange={(e) => handleEditPricePerUnitChange(parseFloat(e.target.value) || 0)}
+              />
+            </div>
+            <div className="flex-1">
+              <Input
+                id="edit_priceTotal"
+                label="סה״כ מחיר"
+                type="number"
+                step="0.01"
+                value={editForm.priceTotal}
+                onChange={(e) => handleEditPriceTotalChange(parseFloat(e.target.value) || 0)}
+              />
+            </div>
+          </div>
+
+          {/* CBM Row */}
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              id="edit_cbmPerUnit"
+              label="CBM ליחידה"
+              type="number"
+              step="0.001"
+              value={editForm.cbmPerUnit}
+              onChange={(e) => handleEditCbmPerUnitChange(parseFloat(e.target.value) || 0)}
+            />
+            <Input
+              id="edit_cbmTotal"
+              label="CBM סה״כ"
+              type="number"
+              step="0.001"
+              value={editForm.cbmTotal}
+              onChange={(e) => setEditForm({ ...editForm, cbmTotal: parseFloat(e.target.value) || 0 })}
+            />
+          </div>
+
+          {/* KG Row */}
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              id="edit_kgPerUnit"
+              label="KG ליחידה"
+              type="number"
+              step="0.1"
+              value={editForm.kgPerUnit}
+              onChange={(e) => handleEditKgPerUnitChange(parseFloat(e.target.value) || 0)}
+            />
+            <Input
+              id="edit_kgTotal"
+              label="KG סה״כ"
+              type="number"
+              step="0.1"
+              value={editForm.kgTotal}
+              onChange={(e) => setEditForm({ ...editForm, kgTotal: parseFloat(e.target.value) || 0 })}
+            />
+          </div>
+
+          {/* Date, Lead Time & Notes */}
+          <div className="grid grid-cols-3 gap-4">
+            <Input
+              id="edit_orderDate"
+              label="תאריך הזמנה"
+              type="date"
+              value={editForm.orderDate}
+              onChange={(e) => setEditForm({ ...editForm, orderDate: e.target.value })}
+            />
+            <Input
+              id="edit_leadTimeDays"
+              label="זמן אספקה (ימים)"
+              type="number"
+              value={editForm.leadTimeDays}
+              onChange={(e) => setEditForm({ ...editForm, leadTimeDays: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+              placeholder="לדוגמה: 30"
+            />
+            <Input
+              id="edit_notes"
+              label="הערות"
+              value={editForm.notes}
+              onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4">
+            <Button variant="secondary" onClick={() => setShowEditModal(false)}>
+              ביטול
+            </Button>
+            <Button onClick={handleSaveProduct} disabled={!editForm.name}>
+              עדכן
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Milestone Modal */}
       <Modal

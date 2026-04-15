@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { generateId } from "./helpers";
+import { generateId, addDaysToDate } from "./helpers";
+import { PRODUCTS_READY_TYPE_ID } from "./milestones";
 
 export const getProductsByOrderId = query({
   args: { orderId: v.string() },
@@ -36,6 +37,7 @@ export const addProduct = mutation({
     kgPerUnit: v.number(),
     kgTotal: v.number(),
     orderDate: v.optional(v.string()),
+    leadTimeDays: v.optional(v.number()),
     notes: v.optional(v.string()),
     sourceKitId: v.optional(v.string()),
     sourceKitFinalProductId: v.optional(v.string()),
@@ -57,10 +59,24 @@ export const addProduct = mutation({
       kgPerUnit: args.kgPerUnit,
       kgTotal: args.kgTotal,
       orderDate: args.orderDate,
+      leadTimeDays: args.leadTimeDays,
       notes: args.notes,
       sourceKitId: args.sourceKitId,
       sourceKitFinalProductId: args.sourceKitFinalProductId,
     });
+
+    // Auto-create "Products Ready" milestone if both orderDate and leadTimeDays are set
+    if (args.orderDate && args.leadTimeDays && args.leadTimeDays > 0) {
+      const targetDate = addDaysToDate(args.orderDate, args.leadTimeDays);
+      await ctx.db.insert("productMilestones", {
+        milestoneId: generateId("PMS"),
+        productId,
+        milestoneTypeId: PRODUCTS_READY_TYPE_ID,
+        targetDate,
+        status: "מוצרים מוכנים",
+        notes: "נוצר אוטומטית מזמן אספקה",
+      });
+    }
 
     // Auto-create pending payment for this product
     const paymentCurrency = ["USD", "CNY", "ILS"].includes(args.currency)
@@ -82,6 +98,22 @@ export const addProduct = mutation({
     // Link the payment to the product
     await ctx.db.insert("paymentProductLinks", { paymentId, productId });
 
+    // Copy files from kit final product if created from kit
+    if (args.sourceKitFinalProductId) {
+      const kitFiles = await ctx.db
+        .query("kitFinalProductFiles")
+        .withIndex("by_kitFinalProductId", (q) => q.eq("kitFinalProductId", args.sourceKitFinalProductId!))
+        .collect();
+      for (const file of kitFiles) {
+        await ctx.db.insert("productFiles", {
+          productId,
+          storageId: file.storageId,
+          fileName: file.fileName,
+          fileType: file.fileType,
+        });
+      }
+    }
+
     return productId;
   },
 });
@@ -100,6 +132,7 @@ export const updateProduct = mutation({
     kgPerUnit: v.optional(v.number()),
     kgTotal: v.optional(v.number()),
     orderDate: v.optional(v.string()),
+    leadTimeDays: v.optional(v.number()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -122,9 +155,81 @@ export const updateProduct = mutation({
     if (args.kgPerUnit !== undefined) updates.kgPerUnit = args.kgPerUnit;
     if (args.kgTotal !== undefined) updates.kgTotal = args.kgTotal;
     if (args.orderDate !== undefined) updates.orderDate = args.orderDate;
+    if (args.leadTimeDays !== undefined) updates.leadTimeDays = args.leadTimeDays;
     if (args.notes !== undefined) updates.notes = args.notes;
 
     await ctx.db.patch(product._id, updates);
+
+    // Forward sync: if orderDate or leadTimeDays changed, update "Products Ready" milestone
+    if (args.orderDate !== undefined || args.leadTimeDays !== undefined) {
+      const effectiveOrderDate = args.orderDate !== undefined ? args.orderDate : product.orderDate;
+      const effectiveLeadTime = args.leadTimeDays !== undefined ? args.leadTimeDays : product.leadTimeDays;
+
+      if (effectiveOrderDate && effectiveLeadTime && effectiveLeadTime > 0) {
+        const targetDate = addDaysToDate(effectiveOrderDate, effectiveLeadTime);
+        const milestones = await ctx.db
+          .query("productMilestones")
+          .withIndex("by_productId", (q) => q.eq("productId", args.productId))
+          .collect();
+        const readyMilestone = milestones.find((m) => m.milestoneTypeId === PRODUCTS_READY_TYPE_ID);
+
+        if (readyMilestone) {
+          await ctx.db.patch(readyMilestone._id, { targetDate });
+        } else {
+          await ctx.db.insert("productMilestones", {
+            milestoneId: generateId("PMS"),
+            productId: args.productId,
+            milestoneTypeId: PRODUCTS_READY_TYPE_ID,
+            targetDate,
+            status: "מוצרים מוכנים",
+            notes: "נוצר אוטומטית מזמן אספקה",
+          });
+        }
+      }
+    }
+
+    // Cascade updates to linked pending payments
+    const paymentLinks = await ctx.db
+      .query("paymentProductLinks")
+      .withIndex("by_productId", (q) => q.eq("productId", args.productId))
+      .collect();
+
+    for (const link of paymentLinks) {
+      const payment = await ctx.db
+        .query("payments")
+        .withIndex("by_paymentId", (q) => q.eq("paymentId", link.paymentId))
+        .first();
+
+      if (payment) {
+        const paymentUpdates: Record<string, unknown> = {};
+
+        // Only sync financial fields to pending payments
+        if (payment.status === "pending") {
+          if (args.priceTotal !== undefined) {
+            paymentUpdates.amount = args.priceTotal;
+          }
+          if (args.currency !== undefined) {
+            const validCurrency = ["USD", "CNY", "ILS"].includes(args.currency)
+              ? args.currency
+              : undefined;
+            if (validCurrency) paymentUpdates.currency = validCurrency;
+          }
+          if (args.name !== undefined) {
+            paymentUpdates.description = `תשלום עבור ${args.name}`;
+          }
+        }
+
+        // Sync supplier to both pending AND approved payments
+        if (args.supplier !== undefined) {
+          paymentUpdates.payee = args.supplier;
+        }
+
+        if (Object.keys(paymentUpdates).length > 0) {
+          await ctx.db.patch(payment._id, paymentUpdates);
+        }
+      }
+    }
+
     return true;
   },
 });

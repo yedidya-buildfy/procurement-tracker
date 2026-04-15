@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { generateId } from "./helpers";
+import { generateId, addDaysToDate, daysBetweenDates } from "./helpers";
+
+export const PRODUCTS_READY_TYPE_ID = "products_ready";
 
 // Milestone Types
 export const getMilestoneTypes = query({
@@ -254,6 +256,19 @@ export const updateProductMilestone = mutation({
     if (args.notes !== undefined) updates.notes = args.notes;
 
     await ctx.db.patch(milestone._id, updates);
+
+    // Reverse sync: if targetDate changed on a "products_ready" milestone, recalculate leadTimeDays
+    if (args.targetDate !== undefined && milestone.milestoneTypeId === PRODUCTS_READY_TYPE_ID) {
+      const product = await ctx.db
+        .query("products")
+        .withIndex("by_productId", (q) => q.eq("productId", milestone.productId))
+        .first();
+      if (product && product.orderDate) {
+        const newLeadTimeDays = daysBetweenDates(product.orderDate, args.targetDate);
+        await ctx.db.patch(product._id, { leadTimeDays: newLeadTimeDays });
+      }
+    }
+
     return true;
   },
 });
@@ -270,6 +285,38 @@ export const deleteProductMilestone = mutation({
 
     await ctx.db.delete(milestone._id);
     return true;
+  },
+});
+
+// Sync "Products Ready" milestone from orderDate + leadTimeDays
+export const syncProductsReadyMilestone = mutation({
+  args: {
+    productId: v.string(),
+    orderDate: v.string(),
+    leadTimeDays: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const targetDate = addDaysToDate(args.orderDate, args.leadTimeDays);
+
+    const existing = await ctx.db
+      .query("productMilestones")
+      .withIndex("by_productId", (q) => q.eq("productId", args.productId))
+      .collect();
+    const readyMilestone = existing.find((m) => m.milestoneTypeId === PRODUCTS_READY_TYPE_ID);
+
+    if (readyMilestone) {
+      await ctx.db.patch(readyMilestone._id, { targetDate });
+    } else {
+      await ctx.db.insert("productMilestones", {
+        milestoneId: generateId("PMS"),
+        productId: args.productId,
+        milestoneTypeId: PRODUCTS_READY_TYPE_ID,
+        targetDate,
+        status: "מוצרים מוכנים",
+        notes: "נוצר אוטומטית מזמן אספקה",
+      });
+    }
+    return targetDate;
   },
 });
 

@@ -30,6 +30,7 @@ export default defineSchema({
     kgPerUnit: v.number(),
     kgTotal: v.number(),
     orderDate: v.optional(v.string()),
+    leadTimeDays: v.optional(v.number()),
     notes: v.optional(v.string()),
     sourceKitId: v.optional(v.string()),
     sourceKitFinalProductId: v.optional(v.string()),
@@ -206,6 +207,7 @@ export default defineSchema({
     costType: v.union(v.literal("fixed"), v.literal("percentage")),
     amount: v.number(),
     linkedProductIds: v.optional(v.array(v.string())),
+    allocationMethod: v.optional(v.union(v.literal("שווה"), v.literal("נפח"), v.literal("משקל"), v.literal("עלות"), v.literal("כמות"))),
     leadTime: v.optional(v.string()),
     notes: v.optional(v.string()),
   })

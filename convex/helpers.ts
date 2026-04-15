@@ -181,3 +181,15 @@ export function calculateOrderSummary(
 export function generateId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 }
+
+export function addDaysToDate(dateStr: string, days: number): string {
+  const date = new Date(dateStr + "T00:00:00Z");
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().split("T")[0];
+}
+
+export function daysBetweenDates(startDate: string, endDate: string): number {
+  const start = new Date(startDate + "T00:00:00Z");
+  const end = new Date(endDate + "T00:00:00Z");
+  return Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+}

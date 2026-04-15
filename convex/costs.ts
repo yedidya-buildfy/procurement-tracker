@@ -120,6 +120,38 @@ export const updateCost = mutation({
     if (args.notes !== undefined) updates.notes = args.notes;
 
     await ctx.db.patch(cost._id, updates);
+
+    // Cascade updates to linked pending payments
+    const paymentLinks = await ctx.db
+      .query("paymentCostLinks")
+      .withIndex("by_costId", (q) => q.eq("costId", args.costId))
+      .collect();
+
+    for (const link of paymentLinks) {
+      const payment = await ctx.db
+        .query("payments")
+        .withIndex("by_paymentId", (q) => q.eq("paymentId", link.paymentId))
+        .first();
+
+      if (payment && payment.status === "pending") {
+        const paymentUpdates: Record<string, unknown> = {};
+
+        if (args.amount !== undefined) {
+          paymentUpdates.amount = args.amount;
+        }
+        if (args.currency !== undefined) {
+          paymentUpdates.currency = args.currency;
+        }
+        if (args.description !== undefined) {
+          paymentUpdates.description = `תשלום עבור ${args.description}`;
+        }
+
+        if (Object.keys(paymentUpdates).length > 0) {
+          await ctx.db.patch(payment._id, paymentUpdates);
+        }
+      }
+    }
+
     return true;
   },
 });

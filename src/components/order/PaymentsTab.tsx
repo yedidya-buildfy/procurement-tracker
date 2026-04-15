@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import Button from '@/components/ui/Button';
@@ -112,6 +112,41 @@ export default function PaymentsTab({
   const [showModal, setShowModal] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [formData, setFormData] = useState(emptyPayment);
+  const [showPayeeSuggestions, setShowPayeeSuggestions] = useState(false);
+
+  const allSuppliers = useQuery(api.products.getAllSuppliers) ?? [];
+
+  // Build a recency map from payments - most recent payment date per payee
+  const payeeRecency = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of payments) {
+      if (p.payee && p.payee.trim()) {
+        const existing = map.get(p.payee);
+        if (!existing || p.date > existing) {
+          map.set(p.payee, p.date);
+        }
+      }
+    }
+    return map;
+  }, [payments]);
+
+  const filteredSuppliers = useMemo(() => {
+    const list = formData.payee.trim()
+      ? allSuppliers.filter((s) =>
+          s.toLowerCase().includes(formData.payee.toLowerCase())
+        )
+      : [...allSuppliers];
+
+    // Sort: recently used first (by most recent date desc), then unused alphabetically
+    return list.sort((a, b) => {
+      const dateA = payeeRecency.get(a);
+      const dateB = payeeRecency.get(b);
+      if (dateA && dateB) return dateB.localeCompare(dateA);
+      if (dateA) return -1;
+      if (dateB) return 1;
+      return a.localeCompare(b);
+    });
+  }, [formData.payee, allSuppliers, payeeRecency]);
 
   // Split payments into pending and approved
   const pendingPayments = useMemo(
@@ -363,40 +398,40 @@ export default function PaymentsTab({
         </Button>
       </div>
 
-      {/* Pending Payments Section */}
-      {pendingPayments.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-2 h-2 rounded-full bg-amber-400"></div>
-            <h4 className="text-sm font-medium text-amber-700">
-              תשלומים ממתינים ({pendingPayments.length})
-            </h4>
-          </div>
-          <div className="border border-amber-200 rounded-lg overflow-hidden">
-            <PaymentTable paymentsList={pendingPayments} isPending={true} />
-          </div>
-        </div>
-      )}
-
-      {/* Approved Payments Section */}
-      {approvedPayments.length > 0 ? (
-        <div>
+      {pendingPayments.length === 0 && approvedPayments.length === 0 ? (
+        <p className="text-gray-500 text-center py-8">אין תשלומים</p>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Pending Payments Section */}
           {pendingPayments.length > 0 && (
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-2 h-2 rounded-full bg-green-500"></div>
-              <h4 className="text-sm font-medium text-green-700">
-                תשלומים מאושרים ({approvedPayments.length})
-              </h4>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-amber-400"></div>
+                <h4 className="text-sm font-medium text-amber-700">
+                  תשלומים ממתינים ({pendingPayments.length})
+                </h4>
+              </div>
+              <div className="border border-amber-200 rounded-lg overflow-hidden">
+                <PaymentTable paymentsList={pendingPayments} isPending={true} />
+              </div>
             </div>
           )}
-          <div className="border rounded-lg overflow-hidden">
-            <PaymentTable paymentsList={approvedPayments} isPending={false} />
-          </div>
+
+          {/* Approved Payments Section */}
+          {approvedPayments.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                <h4 className="text-sm font-medium text-green-700">
+                  תשלומים מאושרים ({approvedPayments.length})
+                </h4>
+              </div>
+              <div className="border rounded-lg overflow-hidden">
+                <PaymentTable paymentsList={approvedPayments} isPending={false} />
+              </div>
+            </div>
+          )}
         </div>
-      ) : (
-        pendingPayments.length === 0 && (
-          <p className="text-gray-500 text-center py-8">אין תשלומים</p>
-        )
       )}
 
       {/* Payment Modal */}
@@ -416,13 +451,36 @@ export default function PaymentsTab({
               onChange={(e) => setFormData({ ...formData, date: e.target.value })}
               required
             />
-            <Input
-              id="payee"
-              label="נמען"
-              value={formData.payee}
-              onChange={(e) => setFormData({ ...formData, payee: e.target.value })}
-              placeholder="למי שולם?"
-            />
+            <div className="relative">
+              <Input
+                id="payee"
+                label="נמען"
+                value={formData.payee}
+                onChange={(e) => setFormData({ ...formData, payee: e.target.value })}
+                onFocus={() => setShowPayeeSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowPayeeSuggestions(false), 150)}
+                placeholder="למי שולם?"
+                autoComplete="off"
+              />
+              {showPayeeSuggestions && filteredSuppliers.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                  {filteredSuppliers.map((supplier) => (
+                    <button
+                      key={supplier}
+                      type="button"
+                      className="w-full px-3 py-2 text-right text-sm hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setFormData({ ...formData, payee: supplier });
+                        setShowPayeeSuggestions(false);
+                      }}
+                    >
+                      {supplier}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">

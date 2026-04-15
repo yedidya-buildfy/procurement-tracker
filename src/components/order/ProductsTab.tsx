@@ -37,6 +37,7 @@ interface Product {
   kgPerUnit: number;
   kgTotal: number;
   orderDate?: string;
+  leadTimeDays?: number;
   notes?: string;
   priceILS?: number;
   additionalCostsILS?: number;
@@ -96,6 +97,7 @@ interface ProductFormData {
   kgPerUnit: number;
   kgTotal: number;
   orderDate: string;
+  leadTimeDays: number | '';
   notes: string;
 }
 
@@ -111,6 +113,7 @@ const getEmptyProduct = (): ProductFormData => ({
   kgPerUnit: 0,
   kgTotal: 0,
   orderDate: new Date().toISOString().split('T')[0],
+  leadTimeDays: '',
   notes: '',
 });
 
@@ -126,6 +129,7 @@ export default function ProductsTab({
   const generateUploadUrl = useMutation(api.kits.generateUploadUrl);
   const addProductFileMutation = useMutation(api.products.addProductFile);
   const deleteProductFileMutation = useMutation(api.products.deleteProductFile);
+  const updateSupplierMutation = useMutation(api.suppliers.updateSupplier);
 
   const router = useRouter();
 
@@ -140,6 +144,8 @@ export default function ProductsTab({
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedSource, setSelectedSource] = useState<{ kitId: string; kitFinalProductId: string } | null>(null);
+  const [chatUrlModal, setChatUrlModal] = useState<{ supplierId: string; currentUrl: string } | null>(null);
+  const [chatUrlInput, setChatUrlInput] = useState('');
 
   // Get all unique suppliers from all products across all orders
   const allSuppliers = useQuery(api.products.getAllSuppliers) ?? [];
@@ -212,6 +218,7 @@ export default function ProductsTab({
       kgPerUnit: product.kgPerUnit,
       kgTotal: product.kgTotal,
       orderDate: product.orderDate || new Date().toISOString().split('T')[0],
+      leadTimeDays: product.leadTimeDays ?? '',
       notes: product.notes || '',
     });
     setCurrencySearch('');
@@ -382,6 +389,7 @@ export default function ProductsTab({
           kgPerUnit: formData.kgPerUnit,
           kgTotal: formData.kgTotal,
           orderDate: formData.orderDate || undefined,
+          leadTimeDays: formData.leadTimeDays === '' ? undefined : formData.leadTimeDays,
           notes: formData.notes || undefined,
         });
         targetProductId = editingProduct.productId;
@@ -400,6 +408,7 @@ export default function ProductsTab({
           kgPerUnit: formData.kgPerUnit,
           kgTotal: formData.kgTotal,
           orderDate: formData.orderDate || undefined,
+          leadTimeDays: formData.leadTimeDays === '' ? undefined : formData.leadTimeDays,
           notes: formData.notes || undefined,
           sourceKitId: selectedSource?.kitId,
           sourceKitFinalProductId: selectedSource?.kitFinalProductId,
@@ -617,15 +626,50 @@ export default function ProductsTab({
               )}
             </div>
             <div className="relative">
-              <Input
-                id="supplier"
-                label="ספק"
-                value={formData.supplier}
-                onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
-                onFocus={() => setShowSupplierSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSupplierSuggestions(false), 150)}
-                autoComplete="off"
-              />
+              <div className="flex items-end gap-1.5">
+                <div className="flex-1">
+                  <Input
+                    id="supplier"
+                    label="ספק"
+                    value={formData.supplier}
+                    onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
+                    onFocus={() => setShowSupplierSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSupplierSuggestions(false), 150)}
+                    autoComplete="off"
+                  />
+                </div>
+                {(() => {
+                  const sup = allRegisteredSuppliers.find((s) => s.name === formData.supplier);
+                  if (!sup) return null;
+                  const hasChatUrl = !!sup.alibabaChatUrl;
+                  return (
+                    <div className="flex items-center gap-1 mb-0.5">
+                      {hasChatUrl && (
+                        <a
+                          href={sup.alibabaChatUrl!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 rounded-lg border text-orange-500 border-orange-200 hover:bg-orange-50 transition-colors"
+                          title="פתח צ'אט באליבאבא"
+                        >
+                          <ChatBubbleLeftRightIcon className="w-5 h-5" />
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        className="p-2 rounded-lg border text-gray-400 border-gray-200 hover:bg-gray-50 transition-colors"
+                        title={hasChatUrl ? "ערוך קישור צ'אט" : "הגדר קישור צ'אט"}
+                        onClick={() => {
+                          setChatUrlInput(sup.alibabaChatUrl || '');
+                          setChatUrlModal({ supplierId: sup.supplierId, currentUrl: sup.alibabaChatUrl || '' });
+                        }}
+                      >
+                        <PencilIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
               {showSupplierSuggestions && filteredSuppliers.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                   {filteredSuppliers.map((supplier) => (
@@ -760,14 +804,22 @@ export default function ProductsTab({
             />
           </div>
 
-          {/* Date & Notes Row */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Date, Lead Time & Notes Row */}
+          <div className="grid grid-cols-3 gap-4">
             <Input
               id="orderDate"
               label="תאריך הזמנה"
               type="date"
               value={formData.orderDate}
               onChange={(e) => setFormData({ ...formData, orderDate: e.target.value })}
+            />
+            <Input
+              id="leadTimeDays"
+              label="זמן אספקה (ימים)"
+              type="number"
+              value={formData.leadTimeDays}
+              onChange={(e) => setFormData({ ...formData, leadTimeDays: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+              placeholder="לדוגמה: 30"
             />
             <Input
               id="notes"
@@ -891,6 +943,48 @@ export default function ProductsTab({
             </Button>
             <Button onClick={handleSubmit} disabled={!formData.name}>
               {editingProduct ? 'עדכן' : 'הוסף'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Alibaba Chat URL Modal */}
+      <Modal
+        isOpen={!!chatUrlModal}
+        onClose={() => setChatUrlModal(null)}
+        title="קישור לצ'אט באליבאבא"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">הדבק את הקישור לצ'אט עם הספק באליבאבא</p>
+          <Input
+            id="alibaba_chat_url"
+            label="קישור"
+            value={chatUrlInput}
+            onChange={(e) => setChatUrlInput(e.target.value)}
+            placeholder="https://message.alibaba.com/message/messenger.htm?..."
+          />
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setChatUrlModal(null)}>
+              ביטול
+            </Button>
+            <Button
+              disabled={!chatUrlInput.trim()}
+              onClick={async () => {
+                if (!chatUrlModal) return;
+                try {
+                  await updateSupplierMutation({
+                    supplierId: chatUrlModal.supplierId,
+                    alibabaChatUrl: chatUrlInput.trim(),
+                  });
+                  showToast('קישור צ\'אט נשמר', 'success');
+                  setChatUrlModal(null);
+                } catch (error) {
+                  console.error('Error saving chat URL:', error);
+                  showToast('שגיאה בשמירת קישור', 'error');
+                }
+              }}
+            >
+              שמור
             </Button>
           </div>
         </div>

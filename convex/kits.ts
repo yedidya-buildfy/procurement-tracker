@@ -781,6 +781,31 @@ export const addKitFinalProduct = mutation({
       notes: args.notes,
     });
 
+    // Copy sample images to final product files
+    const samples = await ctx.db
+      .query("samples")
+      .withIndex("by_kitProductId", (q) => q.eq("kitProductId", args.kitProductId))
+      .collect();
+    // Filter to matching supplier if specified
+    const relevantSamples = args.supplierId
+      ? samples.filter((s) => s.supplierId === args.supplierId)
+      : samples;
+
+    for (const sample of relevantSamples) {
+      const images = await ctx.db
+        .query("sampleImages")
+        .withIndex("by_sampleId", (q) => q.eq("sampleId", sample.sampleId))
+        .collect();
+      for (const img of images) {
+        await ctx.db.insert("kitFinalProductFiles", {
+          kitFinalProductId,
+          storageId: img.storageId,
+          fileName: img.caption || "sample-image.jpg",
+          fileType: "image/jpeg",
+        });
+      }
+    }
+
     return kitFinalProductId;
   },
 });
@@ -854,6 +879,7 @@ export const addKitCost = mutation({
     costType: v.union(v.literal("fixed"), v.literal("percentage")),
     amount: v.number(),
     linkedProductIds: v.optional(v.array(v.string())),
+    allocationMethod: v.optional(v.union(v.literal("שווה"), v.literal("נפח"), v.literal("משקל"), v.literal("עלות"), v.literal("כמות"))),
     leadTime: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
@@ -866,6 +892,7 @@ export const addKitCost = mutation({
       costType: args.costType,
       amount: args.amount,
       linkedProductIds: args.linkedProductIds,
+      allocationMethod: args.allocationMethod,
       leadTime: args.leadTime,
       notes: args.notes,
     });
@@ -880,6 +907,7 @@ export const updateKitCost = mutation({
     costType: v.optional(v.union(v.literal("fixed"), v.literal("percentage"))),
     amount: v.optional(v.number()),
     linkedProductIds: v.optional(v.array(v.string())),
+    allocationMethod: v.optional(v.union(v.literal("שווה"), v.literal("נפח"), v.literal("משקל"), v.literal("עלות"), v.literal("כמות"))),
     leadTime: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
@@ -895,6 +923,7 @@ export const updateKitCost = mutation({
     if (args.costType !== undefined) updates.costType = args.costType;
     if (args.amount !== undefined) updates.amount = args.amount;
     if (args.linkedProductIds !== undefined) updates.linkedProductIds = args.linkedProductIds;
+    if (args.allocationMethod !== undefined) updates.allocationMethod = args.allocationMethod;
     if (args.leadTime !== undefined) updates.leadTime = args.leadTime;
     if (args.notes !== undefined) updates.notes = args.notes;
 

@@ -18,6 +18,8 @@ import {
   TrashIcon,
   DocumentTextIcon,
   TableCellsIcon,
+  PencilIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 interface Order {
@@ -33,6 +35,16 @@ interface Order {
 interface Milestone {
   milestoneId: string;
   orderId: string;
+  milestoneTypeId: string;
+  targetDate?: string;
+  actualDate?: string;
+  status?: string;
+  notes?: string;
+}
+
+interface ProductMilestone {
+  milestoneId: string;
+  productId: string;
   milestoneTypeId: string;
   targetDate?: string;
   actualDate?: string;
@@ -67,6 +79,7 @@ interface SummaryTabProps {
     totalKG: number;
   };
   milestones: Milestone[];
+  productMilestones: ProductMilestone[];
   products: ProductWithCosts[];
 }
 
@@ -74,6 +87,7 @@ export default function SummaryTab({
   order,
   summary,
   milestones,
+  productMilestones,
   products,
 }: SummaryTabProps) {
   const router = useRouter();
@@ -82,6 +96,44 @@ export default function SummaryTab({
   const addOrderMilestoneMutation = useMutation(api.milestones.addOrderMilestone);
   const updateOrderMilestoneMutation = useMutation(api.milestones.updateOrderMilestone);
   const deleteOrderMilestoneMutation = useMutation(api.milestones.deleteOrderMilestone);
+  const updateOrderMutation = useMutation(api.orders.updateOrder);
+
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  const handleSaveField = async (field: 'usdRate' | 'cnyRate' | 'estimatedArrival') => {
+    try {
+      const updateArgs: Record<string, unknown> = { orderId: order.orderId };
+      if (field === 'estimatedArrival') {
+        updateArgs[field] = editValue;
+      } else {
+        updateArgs[field] = parseFloat(editValue);
+      }
+      await updateOrderMutation(updateArgs as any);
+      showToast('עודכן בהצלחה', 'success');
+      setEditingField(null);
+    } catch (error) {
+      console.error('Error updating order:', error);
+      showToast('שגיאה בעדכון', 'error');
+    }
+  };
+
+  const [editingMilestoneStatus, setEditingMilestoneStatus] = useState<{ milestoneId: string; status: string } | null>(null);
+
+  const handleSaveMilestoneStatus = async () => {
+    if (!editingMilestoneStatus) return;
+    try {
+      await updateOrderMilestoneMutation({
+        milestoneId: editingMilestoneStatus.milestoneId,
+        status: editingMilestoneStatus.status,
+      });
+      showToast('מיילסטון עודכן', 'success');
+      setEditingMilestoneStatus(null);
+    } catch (error) {
+      console.error('Error updating milestone:', error);
+      showToast('שגיאה בעדכון מיילסטון', 'error');
+    }
+  };
 
   const [showAddMilestone, setShowAddMilestone] = useState(false);
   const [newMilestone, setNewMilestone] = useState({
@@ -180,15 +232,101 @@ export default function SummaryTab({
           </div>
           <div>
             <p className="text-sm text-gray-500">שער דולר</p>
-            <p className="font-medium">{formatNumber(order.usdRate, 2)}</p>
+            {editingField === 'usdRate' ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveField('usdRate');
+                    if (e.key === 'Escape') setEditingField(null);
+                  }}
+                  className="w-24 border rounded px-2 py-1 text-sm"
+                  autoFocus
+                />
+                <button onClick={() => handleSaveField('usdRate')} className="p-0.5 text-green-600 hover:bg-green-50 rounded">
+                  <CheckCircleIcon className="w-4 h-4" />
+                </button>
+                <button onClick={() => setEditingField(null)} className="p-0.5 text-gray-400 hover:bg-gray-100 rounded">
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <p
+                className="font-medium group flex items-center gap-1 cursor-pointer"
+                onClick={() => { setEditingField('usdRate'); setEditValue(String(order.usdRate)); }}
+              >
+                {formatNumber(order.usdRate, 2)}
+                <PencilIcon className="w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </p>
+            )}
           </div>
           <div>
             <p className="text-sm text-gray-500">שער יואן</p>
-            <p className="font-medium">{formatNumber(order.cnyRate, 2)}</p>
+            {editingField === 'cnyRate' ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveField('cnyRate');
+                    if (e.key === 'Escape') setEditingField(null);
+                  }}
+                  className="w-24 border rounded px-2 py-1 text-sm"
+                  autoFocus
+                />
+                <button onClick={() => handleSaveField('cnyRate')} className="p-0.5 text-green-600 hover:bg-green-50 rounded">
+                  <CheckCircleIcon className="w-4 h-4" />
+                </button>
+                <button onClick={() => setEditingField(null)} className="p-0.5 text-gray-400 hover:bg-gray-100 rounded">
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <p
+                className="font-medium group flex items-center gap-1 cursor-pointer"
+                onClick={() => { setEditingField('cnyRate'); setEditValue(String(order.cnyRate)); }}
+              >
+                {formatNumber(order.cnyRate, 2)}
+                <PencilIcon className="w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </p>
+            )}
           </div>
           <div>
             <p className="text-sm text-gray-500">הגעה משוערת</p>
-            <p className="font-medium">{order.estimatedArrival ? formatDate(order.estimatedArrival) : '-'}</p>
+            {editingField === 'estimatedArrival' ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="date"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveField('estimatedArrival');
+                    if (e.key === 'Escape') setEditingField(null);
+                  }}
+                  className="w-36 border rounded px-2 py-1 text-sm"
+                  autoFocus
+                />
+                <button onClick={() => handleSaveField('estimatedArrival')} className="p-0.5 text-green-600 hover:bg-green-50 rounded">
+                  <CheckCircleIcon className="w-4 h-4" />
+                </button>
+                <button onClick={() => setEditingField(null)} className="p-0.5 text-gray-400 hover:bg-gray-100 rounded">
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <p
+                className="font-medium group flex items-center gap-1 cursor-pointer"
+                onClick={() => { setEditingField('estimatedArrival'); setEditValue(order.estimatedArrival || ''); }}
+              >
+                {order.estimatedArrival ? formatDate(order.estimatedArrival) : '-'}
+                <PencilIcon className="w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </p>
+            )}
           </div>
           <div>
             <p className="text-sm text-gray-500">סה"כ CBM</p>
@@ -319,13 +457,35 @@ export default function SummaryTab({
                               index % 2 === 0 ? 'top-14' : '-top-16'
                             }`}
                           >
-                            <p
-                              className={`font-medium text-sm ${
-                                isCompleted ? 'text-green-700' : isOverdue ? 'text-red-600' : 'text-gray-600'
-                              }`}
-                            >
-                              {milestone.status}
-                            </p>
+                            {editingMilestoneStatus?.milestoneId === milestone.milestoneId ? (
+                              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="text"
+                                  value={editingMilestoneStatus.status}
+                                  onChange={(e) => setEditingMilestoneStatus({ ...editingMilestoneStatus, status: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSaveMilestoneStatus();
+                                    if (e.key === 'Escape') setEditingMilestoneStatus(null);
+                                  }}
+                                  className="w-32 border rounded px-2 py-0.5 text-sm"
+                                  autoFocus
+                                />
+                                <button onClick={handleSaveMilestoneStatus} className="p-0.5 text-green-600">
+                                  <CheckCircleIcon className="w-3.5 h-3.5" />
+                                </button>
+                                <button onClick={() => setEditingMilestoneStatus(null)} className="p-0.5 text-gray-400">
+                                  <XMarkIcon className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <p
+                                className={`font-medium text-sm ${
+                                  isCompleted ? 'text-green-700' : isOverdue ? 'text-red-600' : 'text-gray-600'
+                                }`}
+                              >
+                                {milestone.status}
+                              </p>
+                            )}
                             <p className={`text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
                               {milestone.actualDate
                                 ? formatDate(milestone.actualDate)
@@ -355,6 +515,13 @@ export default function SummaryTab({
                               </button>
                             )}
                             <button
+                              onClick={() => setEditingMilestoneStatus({ milestoneId: milestone.milestoneId, status: milestone.status || '' })}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                              title="ערוך תיאור"
+                            >
+                              <PencilIcon className="w-5 h-5" />
+                            </button>
+                            <button
                               onClick={() => handleDeleteMilestone(milestone.milestoneId)}
                               className="p-1.5 text-red-500 hover:bg-red-50 rounded"
                               title="מחק"
@@ -372,6 +539,89 @@ export default function SummaryTab({
           </div>
         )}
       </div>
+
+      {/* Product Milestones Timeline */}
+      {productMilestones.length > 0 && (
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">מיילסטונים לפי מוצר</h3>
+          <div className="space-y-4">
+            {products
+              .filter((p) => productMilestones.some((m) => m.productId === p.productId))
+              .map((product) => {
+                const pMilestones = productMilestones
+                  .filter((m) => m.productId === product.productId)
+                  .sort((a, b) => {
+                    const dateA = a.targetDate || a.actualDate || '';
+                    const dateB = b.targetDate || b.actualDate || '';
+                    return dateA.localeCompare(dateB);
+                  });
+                const today = new Date().toISOString().split('T')[0];
+
+                return (
+                  <div key={product.productId} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-medium text-gray-900">{product.name}</h4>
+                      {product.supplier && (
+                        <span className="text-sm text-gray-500">{product.supplier}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 overflow-x-auto pb-2">
+                      {pMilestones.map((milestone, idx) => {
+                        const isCompleted = !!milestone.actualDate;
+                        const isOverdue = !isCompleted && milestone.targetDate && milestone.targetDate < today;
+                        const isAutoMilestone = milestone.milestoneTypeId === 'products_ready';
+
+                        return (
+                          <div key={milestone.milestoneId} className="flex items-center gap-3 flex-shrink-0">
+                            {idx > 0 && (
+                              <div className={`w-8 h-0.5 ${isCompleted ? 'bg-green-400' : 'bg-gray-200'}`} />
+                            )}
+                            <div className="flex flex-col items-center min-w-[80px]">
+                              <div
+                                className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
+                                  isCompleted
+                                    ? 'bg-green-500 border-green-500 text-white'
+                                    : isOverdue
+                                    ? 'bg-red-500 border-red-500 text-white'
+                                    : isAutoMilestone
+                                    ? 'bg-amber-50 border-amber-400 text-amber-600'
+                                    : 'bg-white border-gray-300 text-gray-400'
+                                }`}
+                              >
+                                {isCompleted ? (
+                                  <CheckCircleIcon className="w-5 h-5" />
+                                ) : isOverdue ? (
+                                  <ClockIcon className="w-4 h-4" />
+                                ) : (
+                                  <span className="text-xs font-bold">{idx + 1}</span>
+                                )}
+                              </div>
+                              <p className={`text-xs font-medium mt-1 text-center ${
+                                isCompleted ? 'text-green-700' : isOverdue ? 'text-red-600' : isAutoMilestone ? 'text-amber-600' : 'text-gray-600'
+                              }`}>
+                                {milestone.status}
+                              </p>
+                              <p className={`text-xs ${isOverdue ? 'text-red-500' : 'text-gray-400'}`}>
+                                {milestone.actualDate
+                                  ? formatDate(milestone.actualDate)
+                                  : milestone.targetDate
+                                  ? formatDate(milestone.targetDate)
+                                  : ''}
+                              </p>
+                              {isOverdue && (
+                                <p className="text-xs text-red-500 font-medium">באיחור</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
 
       {/* Product Cost Breakdown Table */}
       {products.length > 0 && (

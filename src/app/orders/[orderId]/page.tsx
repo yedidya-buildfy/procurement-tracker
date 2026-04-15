@@ -177,7 +177,7 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className={`${activeTab === 'payments' ? 'max-w-[1800px]' : 'max-w-7xl'} mx-auto px-4 py-6 transition-all`}>
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
           <Card>
@@ -249,6 +249,7 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
                 order={order}
                 summary={summary}
                 milestones={data.orderMilestones}
+                productMilestones={data.productMilestones}
                 products={data.products}
               />
             )}

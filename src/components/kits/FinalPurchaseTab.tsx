@@ -7,6 +7,7 @@ import { formatNumber } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
+import Select from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { useConfirm } from '@/components/ui/useConfirm';
 import {
@@ -195,6 +196,7 @@ export default function FinalPurchaseTab({
     amount: '',
     linkedProductIds: [] as string[],
     applyToAll: true,
+    allocationMethod: 'שווה' as 'שווה' | 'נפח' | 'משקל' | 'עלות' | 'כמות',
     leadTime: '',
     notes: '',
   });
@@ -294,7 +296,9 @@ export default function FinalPurchaseTab({
   const totalPricePerUnit = finalProducts.reduce((sum, fp) => sum + (fp.pricePerUnit || 0), 0);
   const totalQuantityPerKit = finalProducts.reduce((sum, fp) => sum + (fp.quantityPerKit || 0), 0);
   const totalWeightPerKit = finalProducts.reduce((sum, fp) => sum + ((fp.quantityPerKit || 0) * (fp.weight || 0)), 0);
-  const totalPricePerKit = finalProducts.reduce((sum, fp) => sum + ((fp.quantityPerKit || 0) * (fp.pricePerUnit || 0)), 0);
+  const productsPricePerKit = finalProducts.reduce((sum, fp) => sum + ((fp.quantityPerKit || 0) * (fp.pricePerUnit || 0)), 0);
+  const additionalCostPerKit = targetKitCount && targetKitCount > 0 ? totalCostsAmount / targetKitCount : 0;
+  const totalPricePerKit = productsPricePerKit + additionalCostPerKit;
   // Only box-marked products count toward CBM totals
   const boxProducts = finalProducts.filter((fp) => fp.isBox);
   const totalVolumePerKit = boxProducts.reduce((sum, fp) => sum + ((fp.quantityPerKit || 0) * (getCbm(fp) || 0)), 0);
@@ -394,7 +398,7 @@ export default function FinalPurchaseTab({
   };
 
   // Cost handlers
-  const resetCostForm = () => setCostForm({ description: '', costType: 'fixed', amount: '', linkedProductIds: [], applyToAll: true, leadTime: '', notes: '' });
+  const resetCostForm = () => setCostForm({ description: '', costType: 'fixed', amount: '', linkedProductIds: [], applyToAll: true, allocationMethod: 'שווה', leadTime: '', notes: '' });
 
   const handleAddCost = async () => {
     if (!costForm.description.trim() || !costForm.amount) return;
@@ -405,6 +409,7 @@ export default function FinalPurchaseTab({
         costType: costForm.costType,
         amount: parseFloat(costForm.amount),
         linkedProductIds: costForm.applyToAll ? undefined : costForm.linkedProductIds,
+        allocationMethod: costForm.allocationMethod,
         leadTime: costForm.leadTime || undefined,
         notes: costForm.notes || undefined,
       });
@@ -423,6 +428,7 @@ export default function FinalPurchaseTab({
         costType: costForm.costType,
         amount: parseFloat(costForm.amount),
         linkedProductIds: costForm.applyToAll ? undefined : costForm.linkedProductIds,
+        allocationMethod: costForm.allocationMethod,
         leadTime: costForm.leadTime || undefined,
         notes: costForm.notes || undefined,
       });
@@ -445,6 +451,7 @@ export default function FinalPurchaseTab({
       amount: cost.amount.toString(),
       linkedProductIds: cost.linkedProductIds || [],
       applyToAll: !cost.linkedProductIds || cost.linkedProductIds.length === 0,
+      allocationMethod: cost.allocationMethod || 'שווה',
       leadTime: cost.leadTime || '',
       notes: cost.notes || '',
     });
@@ -812,7 +819,12 @@ export default function FinalPurchaseTab({
                     {/* כמות */}
                     <td className="px-3 py-3"></td>
                     {/* ספק */}
-                    <td className="px-3 py-3 text-xs text-orange-600">{scope}</td>
+                    <td className="px-3 py-3 text-xs text-orange-600">
+                      <div>{scope}</div>
+                      {cost.allocationMethod && cost.allocationMethod !== 'שווה' && (
+                        <div className="text-gray-400 mt-0.5">חלוקה: {cost.allocationMethod}</div>
+                      )}
+                    </td>
                     {/* מחיר/יח */}
                     <td className="px-3 py-3"></td>
                     {/* סה"כ */}
@@ -1058,6 +1070,20 @@ export default function FinalPurchaseTab({
               </div>
             )}
           </div>
+
+          <Select
+            id="allocationMethod"
+            label="שיטת חלוקה"
+            options={[
+              { value: 'שווה', label: 'שווה - לפי מספר מוצרים' },
+              { value: 'נפח', label: 'נפח - לפי CBM' },
+              { value: 'משקל', label: 'משקל - לפי KG' },
+              { value: 'עלות', label: 'עלות - לפי עלות המוצר' },
+              { value: 'כמות', label: 'כמות - לפי מספר יחידות' },
+            ]}
+            value={costForm.allocationMethod}
+            onChange={(e) => setCostForm({ ...costForm, allocationMethod: e.target.value as typeof costForm.allocationMethod })}
+          />
 
           {/* Preview */}
           {costForm.amount && (
