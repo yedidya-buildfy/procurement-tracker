@@ -16,6 +16,7 @@ import {
   TrashIcon,
   CheckCircleIcon,
   XMarkIcon,
+  FunnelIcon,
 } from '@heroicons/react/24/outline';
 
 interface Payment {
@@ -58,6 +59,11 @@ interface PaymentsTabProps {
   costs: Cost[];
   paymentProductLinks: PaymentProductLink[];
   paymentCostLinks: PaymentCostLink[];
+  summary: {
+    totalOrderILS: number;
+    totalPaidILS: number;
+    balanceILS: number;
+  };
 }
 
 const CURRENCIES = [
@@ -67,6 +73,13 @@ const CURRENCIES = [
 ];
 
 type Currency = 'USD' | 'CNY' | 'ILS';
+type StatusFilter = 'all' | 'approved' | 'pending';
+
+const currencySymbol: Record<Currency, string> = {
+  USD: '$',
+  CNY: '¥',
+  ILS: '₪',
+};
 
 interface PaymentFormData {
   date: string;
@@ -99,6 +112,7 @@ export default function PaymentsTab({
   costs,
   paymentProductLinks,
   paymentCostLinks,
+  summary,
 }: PaymentsTabProps) {
   const { showToast } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
@@ -113,10 +127,10 @@ export default function PaymentsTab({
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [formData, setFormData] = useState(emptyPayment);
   const [showPayeeSuggestions, setShowPayeeSuggestions] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   const allSuppliers = useQuery(api.products.getAllSuppliers) ?? [];
 
-  // Build a recency map from payments - most recent payment date per payee
   const payeeRecency = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of payments) {
@@ -137,7 +151,6 @@ export default function PaymentsTab({
         )
       : [...allSuppliers];
 
-    // Sort: recently used first (by most recent date desc), then unused alphabetically
     return list.sort((a, b) => {
       const dateA = payeeRecency.get(a);
       const dateB = payeeRecency.get(b);
@@ -148,40 +161,43 @@ export default function PaymentsTab({
     });
   }, [formData.payee, allSuppliers, payeeRecency]);
 
-  // Split payments into pending and approved
-  const pendingPayments = useMemo(
-    () => payments.filter((p) => p.status === 'pending'),
-    [payments]
-  );
-  const approvedPayments = useMemo(
-    () => payments.filter((p) => p.status === 'approved'),
-    [payments]
-  );
+  // Filtered + sorted payments: newest first, pending always on top
+  const displayPayments = useMemo(() => {
+    let list = [...payments];
+    if (statusFilter !== 'all') {
+      list = list.filter((p) => p.status === statusFilter);
+    }
+    return list.sort((a, b) => {
+      // Pending on top
+      if (a.status === 'pending' && b.status !== 'pending') return -1;
+      if (b.status === 'pending' && a.status !== 'pending') return 1;
+      // Then by date descending
+      return b.date.localeCompare(a.date);
+    });
+  }, [payments, statusFilter]);
 
-  // Get linked products/costs for a payment
+  const pendingCount = payments.filter((p) => p.status === 'pending').length;
+  const approvedCount = payments.filter((p) => p.status === 'approved').length;
+
   const getLinkedProductIds = (paymentId: string) =>
     paymentProductLinks.filter((l) => l.paymentId === paymentId).map((l) => l.productId);
 
   const getLinkedCostIds = (paymentId: string) =>
     paymentCostLinks.filter((l) => l.paymentId === paymentId).map((l) => l.costId);
 
-  // Get linked names for display
   const getLinkedNames = (paymentId: string) => {
     const productIds = getLinkedProductIds(paymentId);
     const costIds = getLinkedCostIds(paymentId);
     const names: string[] = [];
-
     for (const productId of productIds) {
       const product = products.find((p) => p.productId === productId);
       if (product) names.push(product.name);
     }
-
     for (const costId of costIds) {
       const cost = costs.find((c) => c.costId === costId);
       if (cost) names.push(cost.description);
     }
-
-    return names.length > 0 ? names.join(', ') : '-';
+    return names.length > 0 ? names.join(', ') : '';
   };
 
   const openAddModal = () => {
@@ -270,7 +286,6 @@ export default function PaymentsTab({
 
   const handleDelete = async (paymentId: string) => {
     if (!(await confirm('האם למחוק את התשלום?'))) return;
-
     try {
       await deletePaymentMutation({ paymentId });
       showToast('תשלום נמחק', 'success');
@@ -292,7 +307,6 @@ export default function PaymentsTab({
 
   const handleDismiss = async (paymentId: string) => {
     if (!(await confirm('האם לבטל את התשלום הממתין?'))) return;
-
     try {
       await dismissPaymentMutation({ paymentId });
       showToast('תשלום ממתין בוטל', 'success');
@@ -302,95 +316,15 @@ export default function PaymentsTab({
     }
   };
 
-  const PaymentTable = ({
-    paymentsList,
-    isPending,
-  }: {
-    paymentsList: Payment[];
-    isPending: boolean;
-  }) => (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className={`border-b ${isPending ? 'bg-amber-50' : 'bg-gray-50'}`}>
-            <th className="text-right py-3 px-4 font-medium text-gray-600">תאריך</th>
-            <th className="text-right py-3 px-4 font-medium text-gray-600">נמען</th>
-            <th className="text-right py-3 px-4 font-medium text-gray-600">תיאור</th>
-            <th className="text-right py-3 px-4 font-medium text-gray-600">סכום</th>
-            <th className="text-right py-3 px-4 font-medium text-gray-600">מטבע</th>
-            <th className="text-right py-3 px-4 font-medium text-gray-600">סכום ₪</th>
-            <th className="text-right py-3 px-4 font-medium text-gray-600">אסמכתא</th>
-            <th className="text-right py-3 px-4 font-medium text-gray-600">קישור</th>
-            <th className="text-right py-3 px-4 font-medium text-gray-600">פעולות</th>
-          </tr>
-        </thead>
-        <tbody>
-          {paymentsList.map((payment) => (
-            <tr
-              key={payment.paymentId}
-              className={`border-b hover:bg-gray-50 cursor-pointer ${
-                isPending ? 'bg-amber-50/50 border-r-4 border-r-amber-400' : ''
-              }`}
-              onClick={() => openEditModal(payment)}
-            >
-              <td className="py-3 px-4">{formatDate(payment.date)}</td>
-              <td className="py-3 px-4 font-medium">{payment.payee || '-'}</td>
-              <td className="py-3 px-4">{payment.description || '-'}</td>
-              <td className="py-3 px-4">{payment.amount}</td>
-              <td className="py-3 px-4">{payment.currency}</td>
-              <td className="py-3 px-4 font-semibold text-green-600">
-                {formatCurrency(payment.amountILS || 0)}
-              </td>
-              <td className="py-3 px-4 text-gray-500">{payment.reference || '-'}</td>
-              <td className="py-3 px-4">
-                <span className="text-xs bg-gray-100 px-2 py-1 rounded max-w-[150px] truncate block">
-                  {getLinkedNames(payment.paymentId)}
-                </span>
-              </td>
-              <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                <div className="flex gap-1">
-                  {isPending && (
-                    <>
-                      <button
-                        onClick={() => handleApprove(payment.paymentId)}
-                        className="p-1.5 text-green-600 hover:bg-green-50 rounded"
-                        title="אשר תשלום"
-                      >
-                        <CheckCircleIcon className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDismiss(payment.paymentId)}
-                        className="p-1.5 text-amber-600 hover:bg-amber-50 rounded"
-                        title="בטל תשלום ממתין"
-                      >
-                        <XMarkIcon className="w-4 h-4" />
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={() => openEditModal(payment)}
-                    className="p-1.5 text-gray-500 hover:bg-gray-100 rounded"
-                  >
-                    <PencilIcon className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(payment.paymentId)}
-                    className="p-1.5 text-red-500 hover:bg-red-50 rounded"
-                  >
-                    <TrashIcon className="w-4 h-4" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  const paidPercent =
+    summary.totalOrderILS > 0
+      ? Math.min(100, (summary.totalPaidILS / summary.totalOrderILS) * 100)
+      : 0;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-gray-900">תשלומים</h3>
         <Button size="sm" onClick={openAddModal}>
           <PlusIcon className="w-4 h-4" />
@@ -398,39 +332,194 @@ export default function PaymentsTab({
         </Button>
       </div>
 
-      {pendingPayments.length === 0 && approvedPayments.length === 0 ? (
+      {/* Summary bar */}
+      <div className="bg-gray-50 rounded-xl border p-4 mb-4">
+        <div className="flex items-center justify-between text-sm mb-2">
+          <div className="flex items-center gap-6">
+            <div>
+              <span className="text-gray-500">סה"כ הזמנה</span>
+              <span className="font-semibold text-gray-900 mr-1.5">
+                {formatCurrency(summary.totalOrderILS)}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500">שולם</span>
+              <span className="font-semibold text-green-600 mr-1.5">
+                {formatCurrency(summary.totalPaidILS)}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500">יתרה</span>
+              <span
+                className={`font-semibold mr-1.5 ${
+                  summary.balanceILS > 0 ? 'text-red-600' : 'text-gray-900'
+                }`}
+              >
+                {formatCurrency(summary.balanceILS)}
+              </span>
+            </div>
+          </div>
+          <span className="text-xs text-gray-400">{paidPercent.toFixed(0)}%</span>
+        </div>
+        <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-green-500 rounded-full transition-all duration-500"
+            style={{ width: `${paidPercent}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex items-center gap-1 mb-3">
+        <FunnelIcon className="w-4 h-4 text-gray-400 ml-1" />
+        <button
+          onClick={() => setStatusFilter('all')}
+          className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+            statusFilter === 'all'
+              ? 'bg-gray-900 text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          הכל ({payments.length})
+        </button>
+        <button
+          onClick={() => setStatusFilter('approved')}
+          className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+            statusFilter === 'approved'
+              ? 'bg-green-600 text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          מאושר ({approvedCount})
+        </button>
+        <button
+          onClick={() => setStatusFilter('pending')}
+          className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+            statusFilter === 'pending'
+              ? 'bg-amber-500 text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          ממתין ({pendingCount})
+        </button>
+      </div>
+
+      {/* Payments table */}
+      {displayPayments.length === 0 ? (
         <p className="text-gray-500 text-center py-8">אין תשלומים</p>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Pending Payments Section */}
-          {pendingPayments.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 rounded-full bg-amber-400"></div>
-                <h4 className="text-sm font-medium text-amber-700">
-                  תשלומים ממתינים ({pendingPayments.length})
-                </h4>
-              </div>
-              <div className="border border-amber-200 rounded-lg overflow-hidden">
-                <PaymentTable paymentsList={pendingPayments} isPending={true} />
-              </div>
-            </div>
-          )}
-
-          {/* Approved Payments Section */}
-          {approvedPayments.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                <h4 className="text-sm font-medium text-green-700">
-                  תשלומים מאושרים ({approvedPayments.length})
-                </h4>
-              </div>
-              <div className="border rounded-lg overflow-hidden">
-                <PaymentTable paymentsList={approvedPayments} isPending={false} />
-              </div>
-            </div>
-          )}
+        <div className="border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b">
+                <th className="text-right py-2.5 px-3 font-medium text-gray-500 text-xs">סטטוס</th>
+                <th className="text-right py-2.5 px-3 font-medium text-gray-500 text-xs">תאריך</th>
+                <th className="text-right py-2.5 px-3 font-medium text-gray-500 text-xs">נמען</th>
+                <th className="text-right py-2.5 px-3 font-medium text-gray-500 text-xs">תיאור</th>
+                <th className="text-right py-2.5 px-3 font-medium text-gray-500 text-xs">סכום</th>
+                <th className="text-right py-2.5 px-3 font-medium text-gray-500 text-xs">סכום ₪</th>
+                <th className="text-right py-2.5 px-3 font-medium text-gray-500 text-xs">אסמכתא</th>
+                <th className="text-right py-2.5 px-3 font-medium text-gray-500 text-xs w-24">פעולות</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayPayments.map((payment) => {
+                const isPending = payment.status === 'pending';
+                const linked = getLinkedNames(payment.paymentId);
+                return (
+                  <tr
+                    key={payment.paymentId}
+                    className={`border-b last:border-b-0 hover:bg-gray-50 cursor-pointer transition-colors ${
+                      isPending ? 'bg-amber-50/40' : ''
+                    }`}
+                    onClick={() => openEditModal(payment)}
+                  >
+                    {/* Status */}
+                    <td className="py-2.5 px-3">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${
+                          isPending
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-green-100 text-green-700'
+                        }`}
+                      >
+                        {isPending ? 'ממתין' : 'מאושר'}
+                      </span>
+                    </td>
+                    {/* Date */}
+                    <td className="py-2.5 px-3 text-gray-600 whitespace-nowrap">
+                      {formatDate(payment.date)}
+                    </td>
+                    {/* Payee */}
+                    <td className="py-2.5 px-3 font-medium text-gray-900">
+                      {payment.payee || '-'}
+                    </td>
+                    {/* Description + linked items */}
+                    <td className="py-2.5 px-3 max-w-[200px]">
+                      <span className="text-gray-700 truncate block">
+                        {payment.description || '-'}
+                      </span>
+                      {linked && (
+                        <span className="text-[11px] text-gray-400 truncate block">
+                          {linked}
+                        </span>
+                      )}
+                    </td>
+                    {/* Amount in original currency */}
+                    <td className="py-2.5 px-3 whitespace-nowrap text-gray-700">
+                      {currencySymbol[payment.currency]}
+                      {payment.amount.toLocaleString()}
+                    </td>
+                    {/* Amount ILS */}
+                    <td className="py-2.5 px-3 font-semibold text-green-600 whitespace-nowrap">
+                      {formatCurrency(payment.amountILS || 0)}
+                    </td>
+                    {/* Reference */}
+                    <td className="py-2.5 px-3 text-gray-400 text-xs">
+                      {payment.reference || '-'}
+                    </td>
+                    {/* Actions */}
+                    <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-0.5">
+                        {isPending && (
+                          <>
+                            <button
+                              onClick={() => handleApprove(payment.paymentId)}
+                              className="p-1 text-green-600 hover:bg-green-50 rounded"
+                              title="אשר"
+                            >
+                              <CheckCircleIcon className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDismiss(payment.paymentId)}
+                              className="p-1 text-amber-600 hover:bg-amber-50 rounded"
+                              title="בטל"
+                            >
+                              <XMarkIcon className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => openEditModal(payment)}
+                          className="p-1 text-gray-400 hover:bg-gray-100 rounded"
+                          title="ערוך"
+                        >
+                          <PencilIcon className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(payment.paymentId)}
+                          className="p-1 text-red-400 hover:bg-red-50 rounded"
+                          title="מחק"
+                        >
+                          <TrashIcon className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -500,7 +589,7 @@ export default function PaymentsTab({
               options={CURRENCIES}
               value={formData.currency}
               onChange={(e) =>
-                setFormData({ ...formData, currency: e.target.value as 'USD' | 'CNY' | 'ILS' })
+                setFormData({ ...formData, currency: e.target.value as Currency })
               }
             />
             <Input

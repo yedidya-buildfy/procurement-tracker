@@ -29,6 +29,9 @@ export default defineSchema({
     cbmTotal: v.number(),
     kgPerUnit: v.number(),
     kgTotal: v.number(),
+    dimHeight: v.optional(v.number()),
+    dimWidth: v.optional(v.number()),
+    dimLength: v.optional(v.number()),
     orderDate: v.optional(v.string()),
     leadTimeDays: v.optional(v.number()),
     notes: v.optional(v.string()),
@@ -166,6 +169,11 @@ export default defineSchema({
     currentStage: v.optional(v.number()),
     archived: v.optional(v.boolean()),
     notes: v.optional(v.string()),
+    weight: v.optional(v.number()),
+    volume: v.optional(v.number()),
+    dimHeight: v.optional(v.number()),
+    dimWidth: v.optional(v.number()),
+    dimLength: v.optional(v.number()),
     createdDate: v.string(),
   })
     .index("by_kitProductId", ["kitProductId"])

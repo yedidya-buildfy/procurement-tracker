@@ -1,8 +1,18 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { generateId } from "./helpers";
+import { generateId, computeCbmFromDims } from "./helpers";
 
 // Kits
+export const getKitById = query({
+  args: { kitId: v.string() },
+  handler: async (ctx, { kitId }) => {
+    return await ctx.db
+      .query("kits")
+      .withIndex("by_kitId", (q) => q.eq("kitId", kitId))
+      .first();
+  },
+});
+
 export const getAllKits = query({
   args: {},
   handler: async (ctx) => {
@@ -385,9 +395,28 @@ export const addSample = mutation({
     paid: v.boolean(),
     shippingMethod: v.optional(v.string()),
     notes: v.optional(v.string()),
+    weight: v.optional(v.number()),
+    volume: v.optional(v.number()),
+    dimHeight: v.optional(v.number()),
+    dimWidth: v.optional(v.number()),
+    dimLength: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const sampleId = generateId("SMP");
+
+    // Auto-calc volume from dims
+    let volume = args.volume;
+    let dimHeight = args.dimHeight;
+    let dimWidth = args.dimWidth;
+    let dimLength = args.dimLength;
+    const computedCbm = computeCbmFromDims(dimHeight, dimWidth, dimLength);
+    if (computedCbm !== null) {
+      volume = computedCbm;
+    } else if (volume !== undefined && !dimHeight && !dimWidth && !dimLength) {
+      dimHeight = undefined;
+      dimWidth = undefined;
+      dimLength = undefined;
+    }
 
     await ctx.db.insert("samples", {
       sampleId,
@@ -397,6 +426,11 @@ export const addSample = mutation({
       paid: args.paid,
       shippingMethod: args.shippingMethod,
       notes: args.notes,
+      weight: args.weight,
+      volume,
+      dimHeight,
+      dimWidth,
+      dimLength,
       createdDate: new Date().toISOString().split("T")[0],
     });
 
@@ -417,6 +451,11 @@ export const updateSample = mutation({
     currentStage: v.optional(v.number()),
     archived: v.optional(v.boolean()),
     notes: v.optional(v.string()),
+    weight: v.optional(v.number()),
+    volume: v.optional(v.number()),
+    dimHeight: v.optional(v.number()),
+    dimWidth: v.optional(v.number()),
+    dimLength: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const sample = await ctx.db
@@ -437,6 +476,28 @@ export const updateSample = mutation({
     if (args.currentStage !== undefined) updates.currentStage = args.currentStage;
     if (args.archived !== undefined) updates.archived = args.archived;
     if (args.notes !== undefined) updates.notes = args.notes;
+    if (args.weight !== undefined) updates.weight = args.weight;
+    if (args.dimHeight !== undefined) updates.dimHeight = args.dimHeight;
+    if (args.dimWidth !== undefined) updates.dimWidth = args.dimWidth;
+    if (args.dimLength !== undefined) updates.dimLength = args.dimLength;
+
+    // Auto-calc volume from dims (merge args with existing)
+    const effectiveH = args.dimHeight ?? sample.dimHeight;
+    const effectiveW = args.dimWidth ?? sample.dimWidth;
+    const effectiveL = args.dimLength ?? sample.dimLength;
+    const anyDimInArgs = args.dimHeight !== undefined || args.dimWidth !== undefined || args.dimLength !== undefined;
+    const computedCbm = computeCbmFromDims(effectiveH, effectiveW, effectiveL);
+
+    if (computedCbm !== null) {
+      updates.volume = computedCbm;
+    } else if (args.volume !== undefined && !anyDimInArgs) {
+      updates.volume = args.volume;
+      updates.dimHeight = undefined;
+      updates.dimWidth = undefined;
+      updates.dimLength = undefined;
+    } else if (args.volume !== undefined) {
+      updates.volume = args.volume;
+    }
 
     await ctx.db.patch(sample._id, updates);
     return true;
@@ -762,6 +823,20 @@ export const addKitFinalProduct = mutation({
   handler: async (ctx, args) => {
     const kitFinalProductId = generateId("KFP");
 
+    // Auto-calc volume from dims, or clear dims if flat volume set
+    let volume = args.volume;
+    let dimHeight = args.dimHeight;
+    let dimWidth = args.dimWidth;
+    let dimLength = args.dimLength;
+    const computedCbm = computeCbmFromDims(dimHeight, dimWidth, dimLength);
+    if (computedCbm !== null) {
+      volume = computedCbm;
+    } else if (volume !== undefined && !dimHeight && !dimWidth && !dimLength) {
+      dimHeight = undefined;
+      dimWidth = undefined;
+      dimLength = undefined;
+    }
+
     await ctx.db.insert("kitFinalProducts", {
       kitFinalProductId,
       kitProductId: args.kitProductId,
@@ -770,10 +845,10 @@ export const addKitFinalProduct = mutation({
       quantityPerKit: args.quantityPerKit,
       pricePerUnit: args.pricePerUnit,
       weight: args.weight,
-      volume: args.volume,
-      dimHeight: args.dimHeight,
-      dimWidth: args.dimWidth,
-      dimLength: args.dimLength,
+      volume,
+      dimHeight,
+      dimWidth,
+      dimLength,
       isBox: args.isBox,
       moq: args.moq,
       totalCost: args.totalCost,
@@ -842,7 +917,6 @@ export const updateKitFinalProduct = mutation({
     if (args.quantityPerKit !== undefined) updates.quantityPerKit = args.quantityPerKit;
     if (args.pricePerUnit !== undefined) updates.pricePerUnit = args.pricePerUnit;
     if (args.weight !== undefined) updates.weight = args.weight;
-    if (args.volume !== undefined) updates.volume = args.volume;
     if (args.dimHeight !== undefined) updates.dimHeight = args.dimHeight;
     if (args.dimWidth !== undefined) updates.dimWidth = args.dimWidth;
     if (args.dimLength !== undefined) updates.dimLength = args.dimLength;
@@ -851,6 +925,25 @@ export const updateKitFinalProduct = mutation({
     if (args.totalCost !== undefined) updates.totalCost = args.totalCost;
     if (args.productionRound !== undefined) updates.productionRound = args.productionRound;
     if (args.notes !== undefined) updates.notes = args.notes;
+
+    // Auto-calc volume from dims (merge args with existing)
+    const effectiveH = args.dimHeight ?? fp.dimHeight;
+    const effectiveW = args.dimWidth ?? fp.dimWidth;
+    const effectiveL = args.dimLength ?? fp.dimLength;
+    const anyDimInArgs = args.dimHeight !== undefined || args.dimWidth !== undefined || args.dimLength !== undefined;
+    const computedCbm = computeCbmFromDims(effectiveH, effectiveW, effectiveL);
+
+    if (computedCbm !== null) {
+      updates.volume = computedCbm;
+    } else if (args.volume !== undefined && !anyDimInArgs) {
+      // Flat volume set without dims -> clear dims
+      updates.volume = args.volume;
+      updates.dimHeight = undefined;
+      updates.dimWidth = undefined;
+      updates.dimLength = undefined;
+    } else if (args.volume !== undefined) {
+      updates.volume = args.volume;
+    }
 
     await ctx.db.patch(fp._id, updates);
     return true;
@@ -1100,6 +1193,12 @@ export const getAllFinalProductsForAutocomplete = query({
       pricePerUnit?: number;
       weight?: number;
       volume?: number;
+      dimHeight?: number;
+      dimWidth?: number;
+      dimLength?: number;
+      moq?: number;
+      productionRound?: string;
+      notes?: string;
       kitName: string;
     }[] = [];
 
@@ -1137,6 +1236,12 @@ export const getAllFinalProductsForAutocomplete = query({
         pricePerUnit: fp.pricePerUnit ?? undefined,
         weight: fp.weight ?? undefined,
         volume: fp.volume ?? undefined,
+        dimHeight: fp.dimHeight ?? undefined,
+        dimWidth: fp.dimWidth ?? undefined,
+        dimLength: fp.dimLength ?? undefined,
+        moq: fp.moq ?? undefined,
+        productionRound: fp.productionRound ?? undefined,
+        notes: fp.notes ?? undefined,
         kitName: kit?.name ?? "",
       });
     }

@@ -2,7 +2,6 @@
 
 import { useState, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../../convex/_generated/api';
 import { formatCurrency } from '@/lib/utils';
@@ -16,7 +15,6 @@ import CostsTab from '@/components/order/CostsTab';
 import PaymentsTab from '@/components/order/PaymentsTab';
 import SummaryTab from '@/components/order/SummaryTab';
 import {
-  ArrowRightIcon,
   PencilIcon,
   TrashIcon,
   CubeIcon,
@@ -116,68 +114,56 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
 
   return (
     <div className="min-h-screen">
-      {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowRightIcon className="w-5 h-5 text-gray-600" />
-            </Link>
+      <main className={`${activeTab === 'payments' ? 'max-w-[1800px]' : 'max-w-7xl'} mx-auto px-4 py-6 transition-all`}>
+        {/* Page Title & Actions */}
+        <div className="flex items-center gap-4 mb-6">
+          <div className="flex-1">
+            {isEditing ? (
+              <input
+                type="text"
+                value={editedOrder.orderName || ''}
+                onChange={(e) =>
+                  setEditedOrder({ ...editedOrder, orderName: e.target.value })
+                }
+                className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 focus:outline-none"
+              />
+            ) : (
+              <h1 className="text-2xl font-bold text-gray-900">
+                {order.orderName}
+              </h1>
+            )}
+            <p className="text-sm text-gray-500">{order.orderId}</p>
+          </div>
 
-            <div className="flex-1">
-              {isEditing ? (
-                <input
-                  type="text"
-                  value={editedOrder.orderName || ''}
-                  onChange={(e) =>
-                    setEditedOrder({ ...editedOrder, orderName: e.target.value })
-                  }
-                  className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 focus:outline-none"
-                />
-              ) : (
-                <h1 className="text-2xl font-bold text-gray-900">
-                  {order.orderName}
-                </h1>
-              )}
-              <p className="text-sm text-gray-500">{order.orderId}</p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {isEditing ? (
-                <>
-                  <Button variant="secondary" onClick={() => setIsEditing(false)}>
-                    ביטול
-                  </Button>
-                  <Button onClick={handleUpdateOrder}>שמור</Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setIsEditing(true)}
-                  >
-                    <PencilIcon className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleDeleteOrder}
-                    className="text-red-600 hover:bg-red-50"
-                  >
-                    <TrashIcon className="w-4 h-4" />
-                  </Button>
-                </>
-              )}
-            </div>
+          <div className="flex items-center gap-2">
+            {isEditing ? (
+              <>
+                <Button variant="secondary" onClick={() => setIsEditing(false)}>
+                  ביטול
+                </Button>
+                <Button onClick={handleUpdateOrder}>שמור</Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsEditing(true)}
+                >
+                  <PencilIcon className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDeleteOrder}
+                  className="text-red-600 hover:bg-red-50"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
-      </header>
-
-      <main className={`${activeTab === 'payments' ? 'max-w-[1800px]' : 'max-w-7xl'} mx-auto px-4 py-6 transition-all`}>
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
           <Card>
@@ -274,6 +260,7 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
                 costs={data.costs}
                 paymentProductLinks={data.paymentProductLinks}
                 paymentCostLinks={data.paymentCostLinks}
+                summary={summary}
               />
             )}
           </div>

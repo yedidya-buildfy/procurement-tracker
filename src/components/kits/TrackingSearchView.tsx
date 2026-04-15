@@ -18,7 +18,7 @@ import {
   CheckCircleIcon,
   ExclamationTriangleIcon,
   QuestionMarkCircleIcon,
-  ArrowLeftIcon,
+
   ChevronUpIcon,
   ChevronDownIcon,
   ArrowPathIcon,
@@ -423,18 +423,8 @@ export default function TrackingSearchView() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Top Bar */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-20">
-        <div className="max-w-[1800px] mx-auto px-4 py-3 flex items-center gap-4">
-          <Link href="/kits" className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors">
-            <ArrowLeftIcon className="w-4 h-4" />
-            חזרה לערכות
-          </Link>
-          <h1 className="text-lg font-semibold text-gray-800">חיפוש מעקב מתקדם</h1>
-        </div>
-      </div>
-
       <div className="max-w-[1800px] mx-auto px-4 py-4 space-y-4 flex-1 flex flex-col w-full">
+        <h2 className="text-xl font-bold text-gray-900">חיפוש מעקב מתקדם</h2>
         {/* Search Controls */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 space-y-4 shrink-0">
           <div className="flex items-start gap-4">

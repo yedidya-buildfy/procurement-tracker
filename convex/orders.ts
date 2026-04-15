@@ -12,7 +12,7 @@ import {
 export const getAllOrders = query({
   args: {},
   handler: async (ctx) => {
-    const orders = await ctx.db.query("orders").collect();
+    const orders = await ctx.db.query("orders").order("desc").collect();
 
     const ordersWithSummary = await Promise.all(
       orders.map(async (order) => {

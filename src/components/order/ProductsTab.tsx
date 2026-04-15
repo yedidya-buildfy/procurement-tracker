@@ -8,6 +8,7 @@ import { formatCurrency, formatNumber } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
+import DimensionInput from '@/components/ui/DimensionInput';
 
 import { useToast } from '@/components/ui/Toast';
 import { useConfirm } from '@/components/ui/useConfirm';
@@ -36,6 +37,9 @@ interface Product {
   cbmTotal: number;
   kgPerUnit: number;
   kgTotal: number;
+  dimHeight?: number;
+  dimWidth?: number;
+  dimLength?: number;
   orderDate?: string;
   leadTimeDays?: number;
   notes?: string;
@@ -96,6 +100,9 @@ interface ProductFormData {
   cbmTotal: number;
   kgPerUnit: number;
   kgTotal: number;
+  dimHeight: string;
+  dimWidth: string;
+  dimLength: string;
   orderDate: string;
   leadTimeDays: number | '';
   notes: string;
@@ -112,6 +119,9 @@ const getEmptyProduct = (): ProductFormData => ({
   cbmTotal: 0,
   kgPerUnit: 0,
   kgTotal: 0,
+  dimHeight: '',
+  dimWidth: '',
+  dimLength: '',
   orderDate: new Date().toISOString().split('T')[0],
   leadTimeDays: '',
   notes: '',
@@ -217,6 +227,9 @@ export default function ProductsTab({
       cbmTotal: product.cbmTotal,
       kgPerUnit: product.kgPerUnit,
       kgTotal: product.kgTotal,
+      dimHeight: product.dimHeight ? String(product.dimHeight) : '',
+      dimWidth: product.dimWidth ? String(product.dimWidth) : '',
+      dimLength: product.dimLength ? String(product.dimLength) : '',
       orderDate: product.orderDate || new Date().toISOString().split('T')[0],
       leadTimeDays: product.leadTimeDays ?? '',
       notes: product.notes || '',
@@ -289,7 +302,18 @@ export default function ProductsTab({
     const qty = fp.quantity || 0;
     const price = fp.pricePerUnit || 0;
     const weightKg = (fp.weight || 0) / 1000;
-    const volumeM3 = fp.volume || 0;
+
+    // Prefer dims-based CBM, fall back to stored volume
+    const hasDims = fp.dimHeight && fp.dimWidth && fp.dimLength;
+    const cbmFromDims = hasDims
+      ? (fp.dimHeight! * fp.dimWidth! * fp.dimLength!) / 1_000_000_000
+      : null;
+    const volumeM3 = cbmFromDims ?? fp.volume ?? 0;
+
+    // Parse production round to lead time days if possible
+    const leadTimeDays = fp.productionRound
+      ? parseInt(fp.productionRound) || ''
+      : '';
 
     setFormData({
       ...formData,
@@ -302,6 +326,11 @@ export default function ProductsTab({
       cbmTotal: volumeM3 * qty,
       kgPerUnit: weightKg,
       kgTotal: weightKg * qty,
+      dimHeight: fp.dimHeight ? String(fp.dimHeight) : '',
+      dimWidth: fp.dimWidth ? String(fp.dimWidth) : '',
+      dimLength: fp.dimLength ? String(fp.dimLength) : '',
+      leadTimeDays,
+      notes: fp.notes || '',
     });
     setSelectedSource({ kitId: fp.kitId, kitFinalProductId: fp.kitFinalProductId });
     setShowFinalProductSuggestions(false);
@@ -388,6 +417,9 @@ export default function ProductsTab({
           cbmTotal: formData.cbmTotal,
           kgPerUnit: formData.kgPerUnit,
           kgTotal: formData.kgTotal,
+          dimHeight: formData.dimHeight ? parseFloat(formData.dimHeight) : undefined,
+          dimWidth: formData.dimWidth ? parseFloat(formData.dimWidth) : undefined,
+          dimLength: formData.dimLength ? parseFloat(formData.dimLength) : undefined,
           orderDate: formData.orderDate || undefined,
           leadTimeDays: formData.leadTimeDays === '' ? undefined : formData.leadTimeDays,
           notes: formData.notes || undefined,
@@ -407,6 +439,9 @@ export default function ProductsTab({
           cbmTotal: formData.cbmTotal,
           kgPerUnit: formData.kgPerUnit,
           kgTotal: formData.kgTotal,
+          dimHeight: formData.dimHeight ? parseFloat(formData.dimHeight) : undefined,
+          dimWidth: formData.dimWidth ? parseFloat(formData.dimWidth) : undefined,
+          dimLength: formData.dimLength ? parseFloat(formData.dimLength) : undefined,
           orderDate: formData.orderDate || undefined,
           leadTimeDays: formData.leadTimeDays === '' ? undefined : formData.leadTimeDays,
           notes: formData.notes || undefined,
@@ -764,25 +799,41 @@ export default function ProductsTab({
             </div>
           </div>
 
-          {/* CBM Row */}
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              id="cbmPerUnit"
-              label="CBM ליחידה"
-              type="number"
-              step="0.001"
-              value={formData.cbmPerUnit}
-              onChange={(e) => handleCbmPerUnitChange(parseFloat(e.target.value) || 0)}
-            />
-            <Input
-              id="cbmTotal"
-              label="CBM סה״כ"
-              type="number"
-              step="0.001"
-              value={formData.cbmTotal}
-              onChange={(e) => handleCbmTotalChange(parseFloat(e.target.value) || 0)}
-            />
-          </div>
+          {/* Dimensions / CBM */}
+          <DimensionInput
+            dimHeight={formData.dimHeight}
+            dimWidth={formData.dimWidth}
+            dimLength={formData.dimLength}
+            volume={String(formData.cbmPerUnit || '')}
+            onDimChange={(field, value) => {
+              const newForm = { ...formData, [field]: value };
+              const h = parseFloat(newForm.dimHeight) || 0;
+              const w = parseFloat(newForm.dimWidth) || 0;
+              const l = parseFloat(newForm.dimLength) || 0;
+              if (h > 0 && w > 0 && l > 0) {
+                const cbm = (h * w * l) / 1_000_000_000;
+                newForm.cbmPerUnit = cbm;
+                newForm.cbmTotal = cbm * newForm.quantity;
+              }
+              setFormData(newForm);
+            }}
+            onVolumeChange={(value) => {
+              const cbm = parseFloat(value) || 0;
+              setFormData({
+                ...formData,
+                cbmPerUnit: cbm,
+                cbmTotal: cbm * formData.quantity,
+                dimHeight: '',
+                dimWidth: '',
+                dimLength: '',
+              });
+            }}
+          />
+          {formData.cbmPerUnit > 0 && formData.quantity > 0 && (
+            <p className="text-xs text-gray-500 -mt-2">
+              CBM סה״כ: {(formData.cbmPerUnit * formData.quantity).toFixed(4)}
+            </p>
+          )}
 
           {/* KG Row */}
           <div className="grid grid-cols-2 gap-4">

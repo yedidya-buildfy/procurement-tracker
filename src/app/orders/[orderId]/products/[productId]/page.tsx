@@ -10,6 +10,7 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
+import DimensionInput from '@/components/ui/DimensionInput';
 import Spinner from '@/components/ui/Spinner';
 import { useToast } from '@/components/ui/Toast';
 import { useConfirm } from '@/components/ui/useConfirm';
@@ -88,6 +89,9 @@ export default function ProductPage({
     cbmTotal: 0,
     kgPerUnit: 0,
     kgTotal: 0,
+    dimHeight: '',
+    dimWidth: '',
+    dimLength: '',
     orderDate: '',
     leadTimeDays: '' as number | '',
     notes: '',
@@ -142,6 +146,9 @@ export default function ProductPage({
       cbmTotal: p.cbmTotal,
       kgPerUnit: p.kgPerUnit,
       kgTotal: p.kgTotal,
+      dimHeight: p.dimHeight ? String(p.dimHeight) : '',
+      dimWidth: p.dimWidth ? String(p.dimWidth) : '',
+      dimLength: p.dimLength ? String(p.dimLength) : '',
       orderDate: p.orderDate || '',
       leadTimeDays: p.leadTimeDays ?? '',
       notes: p.notes || '',
@@ -205,6 +212,9 @@ export default function ProductPage({
         cbmTotal: editForm.cbmTotal,
         kgPerUnit: editForm.kgPerUnit,
         kgTotal: editForm.kgTotal,
+        dimHeight: editForm.dimHeight ? parseFloat(editForm.dimHeight) : undefined,
+        dimWidth: editForm.dimWidth ? parseFloat(editForm.dimWidth) : undefined,
+        dimLength: editForm.dimLength ? parseFloat(editForm.dimLength) : undefined,
         orderDate: editForm.orderDate || undefined,
         leadTimeDays: editForm.leadTimeDays === '' ? undefined : editForm.leadTimeDays,
         notes: editForm.notes,
@@ -369,47 +379,35 @@ export default function ProductPage({
 
   return (
     <div className="min-h-screen">
-      {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-4">
-          <div className="flex items-center gap-4">
-            <Link
-              href={`/orders/${orderId}?tab=${fromTab}`}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+        {/* Page Title & Actions */}
+        <div className="flex items-center gap-4">
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold text-gray-900">{product.name}</h1>
+            <p className="text-sm text-gray-500">
+              {data.order.orderName} &middot; {product.productId}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={openEditModal}
+              className="text-gray-600 hover:bg-gray-100"
             >
-              <ArrowRightIcon className="w-5 h-5 text-gray-600" />
-            </Link>
-
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold text-gray-900">{product.name}</h1>
-              <p className="text-sm text-gray-500">
-                {data.order.orderName} &middot; {product.productId}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={openEditModal}
-                className="text-gray-600 hover:bg-gray-100"
-              >
-                <PencilIcon className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleDeleteProduct}
-                className="text-red-600 hover:bg-red-50"
-              >
-                <TrashIcon className="w-4 h-4" />
-              </Button>
-            </div>
+              <PencilIcon className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDeleteProduct}
+              className="text-red-600 hover:bg-red-50"
+            >
+              <TrashIcon className="w-4 h-4" />
+            </Button>
           </div>
         </div>
-      </header>
-
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card>
@@ -526,13 +524,19 @@ export default function ProductPage({
                 <span className="font-medium">{product.leadTimeDays ? `${product.leadTimeDays} ימים` : '-'}</span>
               </div>
               <hr />
+              {product.dimHeight && product.dimWidth && product.dimLength && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">מידות (מ״מ)</span>
+                  <span className="font-medium">{product.dimHeight} x {product.dimWidth} x {product.dimLength}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-gray-500">CBM ליחידה</span>
-                <span className="font-medium">{formatNumber(product.cbmPerUnit, 3)}</span>
+                <span className="font-medium">{formatNumber(product.cbmPerUnit, 6)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">CBM סה"כ</span>
-                <span className="font-medium">{formatNumber(product.cbmTotal, 3)}</span>
+                <span className="font-medium">{formatNumber(product.cbmTotal, 4)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">KG ליחידה</span>
@@ -1000,25 +1004,41 @@ export default function ProductPage({
             </div>
           </div>
 
-          {/* CBM Row */}
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              id="edit_cbmPerUnit"
-              label="CBM ליחידה"
-              type="number"
-              step="0.001"
-              value={editForm.cbmPerUnit}
-              onChange={(e) => handleEditCbmPerUnitChange(parseFloat(e.target.value) || 0)}
-            />
-            <Input
-              id="edit_cbmTotal"
-              label="CBM סה״כ"
-              type="number"
-              step="0.001"
-              value={editForm.cbmTotal}
-              onChange={(e) => setEditForm({ ...editForm, cbmTotal: parseFloat(e.target.value) || 0 })}
-            />
-          </div>
+          {/* Dimensions / CBM */}
+          <DimensionInput
+            dimHeight={editForm.dimHeight}
+            dimWidth={editForm.dimWidth}
+            dimLength={editForm.dimLength}
+            volume={String(editForm.cbmPerUnit || '')}
+            onDimChange={(field, value) => {
+              const newForm = { ...editForm, [field]: value };
+              const h = parseFloat(newForm.dimHeight) || 0;
+              const w = parseFloat(newForm.dimWidth) || 0;
+              const l = parseFloat(newForm.dimLength) || 0;
+              if (h > 0 && w > 0 && l > 0) {
+                const cbm = (h * w * l) / 1_000_000_000;
+                newForm.cbmPerUnit = cbm;
+                newForm.cbmTotal = cbm * newForm.quantity;
+              }
+              setEditForm(newForm);
+            }}
+            onVolumeChange={(value) => {
+              const cbm = parseFloat(value) || 0;
+              setEditForm({
+                ...editForm,
+                cbmPerUnit: cbm,
+                cbmTotal: cbm * editForm.quantity,
+                dimHeight: '',
+                dimWidth: '',
+                dimLength: '',
+              });
+            }}
+          />
+          {editForm.cbmPerUnit > 0 && editForm.quantity > 0 && (
+            <p className="text-xs text-gray-500 -mt-2">
+              CBM סה״כ: {(editForm.cbmPerUnit * editForm.quantity).toFixed(4)}
+            </p>
+          )}
 
           {/* KG Row */}
           <div className="grid grid-cols-2 gap-4">

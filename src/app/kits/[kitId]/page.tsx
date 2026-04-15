@@ -2,7 +2,6 @@
 
 import { useState, use } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../../convex/_generated/api';
 import Button from '@/components/ui/Button';
@@ -13,7 +12,6 @@ import { useConfirm } from '@/components/ui/useConfirm';
 import SamplesTab from '@/components/kits/SamplesTab';
 import FinalPurchaseTab from '@/components/kits/FinalPurchaseTab';
 import {
-  ArrowRightIcon,
   PencilIcon,
   TrashIcon,
   BeakerIcon,
@@ -38,6 +36,16 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
 
   const [activeTab, setActiveTab] = useState<TabId>('samples');
   const [kitSearch, setKitSearch] = useState('');
+  const [forwardSampleData, setForwardSampleData] = useState<{
+    kitProductId: string;
+    supplierId: string;
+    weight?: string;
+    volume?: string;
+    dimHeight?: string;
+    dimWidth?: string;
+    dimLength?: string;
+    notes?: string;
+  } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedKit, setEditedKit] = useState<{
     name?: string;
@@ -106,74 +114,65 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
 
   return (
     <div className="min-h-screen">
-      {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-10">
-        <div className="mx-auto px-4 py-4">
-          <div className="flex items-center gap-4">
-            <Link href="/kits" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-              <ArrowRightIcon className="w-5 h-5 text-gray-600" />
-            </Link>
+      <main className="mx-auto px-4 py-6">
+        {/* Page Title & Actions */}
+        <div className="flex items-center gap-4 mb-6">
+          <div className="flex-1">
+            {isEditing ? (
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={editedKit.name || ''}
+                  onChange={(e) => setEditedKit({ ...editedKit, name: e.target.value })}
+                  className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 focus:outline-none"
+                />
+                <select
+                  value={editedKit.status || 'פעיל'}
+                  onChange={(e) => setEditedKit({ ...editedKit, status: e.target.value })}
+                  className="px-3 py-1 border rounded-lg text-sm"
+                >
+                  <option value="פעיל">פעיל</option>
+                  <option value="הושלם">הושלם</option>
+                  <option value="בהמתנה">בהמתנה</option>
+                </select>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-gray-900">{kit.name}</h1>
+                <span
+                  className={`px-2 py-1 text-xs font-medium rounded-full ${
+                    kit.status === 'פעיל'
+                      ? 'bg-green-100 text-green-700'
+                      : kit.status === 'הושלם'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  {kit.status}
+                </span>
+              </div>
+            )}
+            <p className="text-sm text-gray-500">{kit.kitId}</p>
+          </div>
 
-            <div className="flex-1">
-              {isEditing ? (
-                <div className="flex items-center gap-3">
-                  <input
-                    type="text"
-                    value={editedKit.name || ''}
-                    onChange={(e) => setEditedKit({ ...editedKit, name: e.target.value })}
-                    className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 focus:outline-none"
-                  />
-                  <select
-                    value={editedKit.status || 'פעיל'}
-                    onChange={(e) => setEditedKit({ ...editedKit, status: e.target.value })}
-                    className="px-3 py-1 border rounded-lg text-sm"
-                  >
-                    <option value="פעיל">פעיל</option>
-                    <option value="הושלם">הושלם</option>
-                    <option value="בהמתנה">בהמתנה</option>
-                  </select>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-bold text-gray-900">{kit.name}</h1>
-                  <span
-                    className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      kit.status === 'פעיל'
-                        ? 'bg-green-100 text-green-700'
-                        : kit.status === 'הושלם'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'bg-gray-100 text-gray-700'
-                    }`}
-                  >
-                    {kit.status}
-                  </span>
-                </div>
-              )}
-              <p className="text-sm text-gray-500">{kit.kitId}</p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {isEditing ? (
-                <>
-                  <Button variant="secondary" onClick={() => setIsEditing(false)}>ביטול</Button>
-                  <Button onClick={handleUpdateKit}>שמור</Button>
-                </>
-              ) : (
-                <>
-                  <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)}>
-                    <PencilIcon className="w-4 h-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={handleDeleteKit} className="text-red-600 hover:bg-red-50">
-                    <TrashIcon className="w-4 h-4" />
-                  </Button>
-                </>
-              )}
-            </div>
+          <div className="flex items-center gap-2">
+            {isEditing ? (
+              <>
+                <Button variant="secondary" onClick={() => setIsEditing(false)}>ביטול</Button>
+                <Button onClick={handleUpdateKit}>שמור</Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)}>
+                  <PencilIcon className="w-4 h-4" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleDeleteKit} className="text-red-600 hover:bg-red-50">
+                  <TrashIcon className="w-4 h-4" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
-      </header>
-
-      <main className="mx-auto px-4 py-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
           <Card>
@@ -266,6 +265,10 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
                 allSuppliers={allSuppliers}
                 allKits={(allKitsRaw || []).map((k) => ({ kitId: k.kitId, name: k.name }))}
                 kitSearch={kitSearch}
+                onForwardToFinal={(data) => {
+                  setForwardSampleData(data);
+                  setActiveTab('final');
+                }}
               />
             )}
             {activeTab === 'final' && (
@@ -281,6 +284,8 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
                 kitSearch={kitSearch}
                 samples={samples}
                 sampleImages={sampleImages}
+                forwardSampleData={forwardSampleData}
+                onForwardConsumed={() => setForwardSampleData(null)}
                 targetKitCount={kit.targetKitCount}
                 onUpdateTargetKitCount={async (count) => {
                   await updateKitMutation({ kitId, targetKitCount: count });

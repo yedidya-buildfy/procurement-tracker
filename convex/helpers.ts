@@ -2,6 +2,17 @@ import { Doc } from "./_generated/dataModel";
 
 export type AllocationMethod = "שווה" | "נפח" | "משקל" | "עלות" | "כמות";
 
+export function computeCbmFromDims(
+  h: number | undefined | null,
+  w: number | undefined | null,
+  l: number | undefined | null
+): number | null {
+  if (h != null && w != null && l != null && h > 0 && w > 0 && l > 0) {
+    return (h * w * l) / 1_000_000_000;
+  }
+  return null;
+}
+
 export function toILS(
   amount: number,
   currency: string,

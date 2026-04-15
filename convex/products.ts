@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { generateId, addDaysToDate } from "./helpers";
+import { generateId, addDaysToDate, computeCbmFromDims } from "./helpers";
 import { PRODUCTS_READY_TYPE_ID } from "./milestones";
 
 export const getProductsByOrderId = query({
@@ -36,6 +36,9 @@ export const addProduct = mutation({
     cbmTotal: v.number(),
     kgPerUnit: v.number(),
     kgTotal: v.number(),
+    dimHeight: v.optional(v.number()),
+    dimWidth: v.optional(v.number()),
+    dimLength: v.optional(v.number()),
     orderDate: v.optional(v.string()),
     leadTimeDays: v.optional(v.number()),
     notes: v.optional(v.string()),
@@ -44,6 +47,22 @@ export const addProduct = mutation({
   },
   handler: async (ctx, args) => {
     const productId = generateId("PROD");
+
+    // Auto-calc cbmPerUnit from dims if provided
+    let cbmPerUnit = args.cbmPerUnit;
+    let cbmTotal = args.cbmTotal;
+    let dimHeight = args.dimHeight;
+    let dimWidth = args.dimWidth;
+    let dimLength = args.dimLength;
+    const computedCbm = computeCbmFromDims(dimHeight, dimWidth, dimLength);
+    if (computedCbm !== null) {
+      cbmPerUnit = computedCbm;
+      cbmTotal = computedCbm * args.quantity;
+    } else if (cbmPerUnit > 0 && !dimHeight && !dimWidth && !dimLength) {
+      dimHeight = undefined;
+      dimWidth = undefined;
+      dimLength = undefined;
+    }
 
     await ctx.db.insert("products", {
       productId,
@@ -54,10 +73,13 @@ export const addProduct = mutation({
       pricePerUnit: args.pricePerUnit,
       priceTotal: args.priceTotal,
       currency: args.currency,
-      cbmPerUnit: args.cbmPerUnit,
-      cbmTotal: args.cbmTotal,
+      cbmPerUnit,
+      cbmTotal,
       kgPerUnit: args.kgPerUnit,
       kgTotal: args.kgTotal,
+      dimHeight,
+      dimWidth,
+      dimLength,
       orderDate: args.orderDate,
       leadTimeDays: args.leadTimeDays,
       notes: args.notes,
@@ -131,6 +153,9 @@ export const updateProduct = mutation({
     cbmTotal: v.optional(v.number()),
     kgPerUnit: v.optional(v.number()),
     kgTotal: v.optional(v.number()),
+    dimHeight: v.optional(v.number()),
+    dimWidth: v.optional(v.number()),
+    dimLength: v.optional(v.number()),
     orderDate: v.optional(v.string()),
     leadTimeDays: v.optional(v.number()),
     notes: v.optional(v.string()),
@@ -150,13 +175,37 @@ export const updateProduct = mutation({
     if (args.pricePerUnit !== undefined) updates.pricePerUnit = args.pricePerUnit;
     if (args.priceTotal !== undefined) updates.priceTotal = args.priceTotal;
     if (args.currency !== undefined) updates.currency = args.currency;
-    if (args.cbmPerUnit !== undefined) updates.cbmPerUnit = args.cbmPerUnit;
-    if (args.cbmTotal !== undefined) updates.cbmTotal = args.cbmTotal;
     if (args.kgPerUnit !== undefined) updates.kgPerUnit = args.kgPerUnit;
     if (args.kgTotal !== undefined) updates.kgTotal = args.kgTotal;
+    if (args.dimHeight !== undefined) updates.dimHeight = args.dimHeight;
+    if (args.dimWidth !== undefined) updates.dimWidth = args.dimWidth;
+    if (args.dimLength !== undefined) updates.dimLength = args.dimLength;
     if (args.orderDate !== undefined) updates.orderDate = args.orderDate;
     if (args.leadTimeDays !== undefined) updates.leadTimeDays = args.leadTimeDays;
     if (args.notes !== undefined) updates.notes = args.notes;
+
+    // Auto-calc CBM from dims (merge args with existing)
+    const effectiveH = args.dimHeight ?? product.dimHeight;
+    const effectiveW = args.dimWidth ?? product.dimWidth;
+    const effectiveL = args.dimLength ?? product.dimLength;
+    const anyDimInArgs = args.dimHeight !== undefined || args.dimWidth !== undefined || args.dimLength !== undefined;
+    const cbmFromDims = computeCbmFromDims(effectiveH, effectiveW, effectiveL);
+    const effectiveQty = args.quantity ?? product.quantity;
+
+    if (cbmFromDims !== null) {
+      updates.cbmPerUnit = cbmFromDims;
+      updates.cbmTotal = cbmFromDims * effectiveQty;
+    } else if (args.cbmPerUnit !== undefined && !anyDimInArgs) {
+      // Flat CBM set without dims -> clear dims
+      updates.cbmPerUnit = args.cbmPerUnit;
+      updates.cbmTotal = args.cbmTotal ?? args.cbmPerUnit * effectiveQty;
+      updates.dimHeight = undefined;
+      updates.dimWidth = undefined;
+      updates.dimLength = undefined;
+    } else {
+      if (args.cbmPerUnit !== undefined) updates.cbmPerUnit = args.cbmPerUnit;
+      if (args.cbmTotal !== undefined) updates.cbmTotal = args.cbmTotal;
+    }
 
     await ctx.db.patch(product._id, updates);
 

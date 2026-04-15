@@ -7,18 +7,15 @@ import { formatCurrency } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Spinner from '@/components/ui/Spinner';
-import Link from 'next/link';
 import OrderCard from '@/components/orders/OrderCard';
 import NewOrderModal from '@/components/orders/NewOrderModal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import { useToast } from '@/components/ui/Toast';
-import Image from 'next/image';
 import {
   PlusIcon,
   MagnifyingGlassIcon,
   CubeIcon,
   BanknotesIcon,
-  BeakerIcon,
 } from '@heroicons/react/24/outline';
 
 export default function HomePage() {
@@ -101,31 +98,15 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen">
-      {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Image src="/Logo.png" alt="Logo" width={40} height={40} />
-              <h1 className="text-2xl font-bold text-gray-900">מעקב רכש בינלאומי</h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <Link href="/kits">
-                <Button variant="secondary">
-                  <BeakerIcon className="w-5 h-5" />
-                  ערכות ודוגמיות
-                </Button>
-              </Link>
-              <Button onClick={() => setShowNewOrderModal(true)}>
-                <PlusIcon className="w-5 h-5" />
-                הזמנה חדשה
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
-
       <main className="max-w-7xl mx-auto px-4 py-6">
+        {/* Page Actions */}
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-gray-900">הזמנות</h2>
+          <Button onClick={() => setShowNewOrderModal(true)}>
+            <PlusIcon className="w-5 h-5" />
+            הזמנה חדשה
+          </Button>
+        </div>
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <Card>

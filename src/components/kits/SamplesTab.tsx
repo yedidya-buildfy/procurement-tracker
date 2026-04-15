@@ -7,6 +7,7 @@ import { formatDate } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
+import DimensionInput from '@/components/ui/DimensionInput';
 import { useToast } from '@/components/ui/Toast';
 import { useConfirm } from '@/components/ui/useConfirm';
 import StagePill from './StagePill';
@@ -30,6 +31,7 @@ import {
   MagnifyingGlassIcon,
   AdjustmentsHorizontalIcon,
   ChatBubbleLeftRightIcon,
+  ArrowUpOnSquareIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarSolid } from '@heroicons/react/24/solid';
 import { Doc, Id } from '../../../convex/_generated/dataModel';
@@ -83,6 +85,16 @@ interface SamplesTabProps {
   allSuppliers: Doc<'suppliers'>[];
   allKits: KitSummary[];
   kitSearch?: string;
+  onForwardToFinal?: (data: {
+    kitProductId: string;
+    supplierId: string;
+    weight?: string;
+    volume?: string;
+    dimHeight?: string;
+    dimWidth?: string;
+    dimLength?: string;
+    notes?: string;
+  }) => void;
 }
 
 export default function SamplesTab({
@@ -96,6 +108,7 @@ export default function SamplesTab({
   allSuppliers,
   allKits,
   kitSearch = '',
+  onForwardToFinal,
 }: SamplesTabProps) {
   const { showToast } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
@@ -134,6 +147,11 @@ export default function SamplesTab({
     sampleCost: '',
     currentStage: 0,
     notes: '',
+    weight: '',
+    volume: '',
+    dimHeight: '',
+    dimWidth: '',
+    dimLength: '',
   });
   const [newSampleFiles, setNewSampleFiles] = useState<File[]>([]);
 
@@ -350,6 +368,11 @@ export default function SamplesTab({
         sampleCost: newSample.sampleCost ? parseFloat(newSample.sampleCost) : undefined,
         paid: false,
         notes: newSample.notes || undefined,
+        weight: newSample.weight ? parseFloat(newSample.weight) : undefined,
+        volume: newSample.volume ? parseFloat(newSample.volume) : undefined,
+        dimHeight: newSample.dimHeight ? parseFloat(newSample.dimHeight) : undefined,
+        dimWidth: newSample.dimWidth ? parseFloat(newSample.dimWidth) : undefined,
+        dimLength: newSample.dimLength ? parseFloat(newSample.dimLength) : undefined,
       });
 
       // Set the stage
@@ -369,7 +392,7 @@ export default function SamplesTab({
 
       showToast('דוגמית נוספה בהצלחה', 'success');
       setShowAddSample(false);
-      setNewSample({ supplierId: '', supplierSearch: '', sampleCost: '', currentStage: 0, notes: '' });
+      setNewSample({ supplierId: '', supplierSearch: '', sampleCost: '', currentStage: 0, notes: '', weight: '', volume: '', dimHeight: '', dimWidth: '', dimLength: '' });
       setNewSampleFiles([]);
     } catch (error) {
       console.error('Error adding sample:', error);
@@ -1046,6 +1069,24 @@ export default function SamplesTab({
                             >
                               <ClipboardDocumentIcon className="w-4 h-4" />
                             </button>
+                            {onForwardToFinal && (
+                              <button
+                                onClick={() => onForwardToFinal({
+                                  kitProductId: sample.kitProductId,
+                                  supplierId: sample.supplierId,
+                                  weight: sample.weight?.toString() || undefined,
+                                  volume: sample.volume?.toString() || undefined,
+                                  dimHeight: sample.dimHeight?.toString() || undefined,
+                                  dimWidth: sample.dimWidth?.toString() || undefined,
+                                  dimLength: sample.dimLength?.toString() || undefined,
+                                  notes: sample.notes || undefined,
+                                })}
+                                className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
+                                title="העבר לרכישה סופית"
+                              >
+                                <ArrowUpOnSquareIcon className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               onClick={() => handleArchiveSample(sample)}
                               className={`p-1.5 rounded transition-colors ${
@@ -1079,7 +1120,7 @@ export default function SamplesTab({
             <button
               onClick={() => {
                 setShowAddSample(true);
-                setNewSample({ supplierId: '', supplierSearch: '', sampleCost: '', currentStage: 0, notes: '' });
+                setNewSample({ supplierId: '', supplierSearch: '', sampleCost: '', currentStage: 0, notes: '', weight: '', volume: '', dimHeight: '', dimWidth: '', dimLength: '' });
                 setNewSampleFiles([]);
               }}
               className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors"
@@ -1196,6 +1237,19 @@ export default function SamplesTab({
               </select>
             </div>
           </div>
+
+          {/* Dimensions / Volume / Weight */}
+          <DimensionInput
+            dimHeight={newSample.dimHeight}
+            dimWidth={newSample.dimWidth}
+            dimLength={newSample.dimLength}
+            volume={newSample.volume}
+            weight={newSample.weight}
+            showWeight={true}
+            onDimChange={(field, value) => setNewSample({ ...newSample, [field]: value })}
+            onVolumeChange={(value) => setNewSample({ ...newSample, volume: value, dimHeight: '', dimWidth: '', dimLength: '' })}
+            onWeightChange={(value) => setNewSample({ ...newSample, weight: value })}
+          />
 
           {/* Row 3: Notes */}
           <Input id="sampleNotes" label="הערות" value={newSample.notes} onChange={(e) => setNewSample({ ...newSample, notes: e.target.value })} />

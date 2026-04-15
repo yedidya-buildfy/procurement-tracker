@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { formatDate } from '@/lib/utils';
@@ -19,7 +18,6 @@ import {
   BeakerIcon,
   CubeIcon,
   TrashIcon,
-  ArrowRightIcon,
   PencilIcon,
   CheckIcon,
   XMarkIcon,
@@ -168,35 +166,17 @@ export default function KitsPage() {
 
   return (
     <div className="min-h-screen">
-      {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Link href="/" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                <ArrowRightIcon className="w-5 h-5 text-gray-600" />
-              </Link>
-              <Image src="/Logo.png" alt="Logo" width={40} height={40} />
-              <h1 className="text-2xl font-bold text-gray-900">ערכות ודוגמיות</h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <Link
-                href="/kits/tracking-search"
-                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 hover:text-blue-700 hover:bg-blue-50 border border-gray-300 rounded-lg transition-colors"
-              >
-                <MagnifyingGlassIcon className="w-4 h-4" />
-                חיפוש מעקב
-              </Link>
-              <Button onClick={() => setShowNewKit(true)}>
-                <PlusIcon className="w-5 h-5" />
-                ערכה חדשה
-              </Button>
-            </div>
+      <main className="max-w-7xl mx-auto px-4 py-6">
+        {/* Page Actions */}
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-gray-900">ערכות ודוגמיות</h2>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setShowNewKit(true)}>
+              <PlusIcon className="w-5 h-5" />
+              ערכה חדשה
+            </Button>
           </div>
         </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
           <Card>

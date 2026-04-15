@@ -8,6 +8,7 @@ import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
+import DimensionInput from '@/components/ui/DimensionInput';
 import { useToast } from '@/components/ui/Toast';
 import { useConfirm } from '@/components/ui/useConfirm';
 import {
@@ -119,6 +120,17 @@ interface FinalPurchaseTabProps {
   sampleImages?: SampleImage[];
   targetKitCount?: number;
   onUpdateTargetKitCount?: (count: number | undefined) => void;
+  forwardSampleData?: {
+    kitProductId: string;
+    supplierId: string;
+    weight?: string;
+    volume?: string;
+    dimHeight?: string;
+    dimWidth?: string;
+    dimLength?: string;
+    notes?: string;
+  } | null;
+  onForwardConsumed?: () => void;
 }
 
 export default function FinalPurchaseTab({
@@ -135,6 +147,8 @@ export default function FinalPurchaseTab({
   sampleImages = [],
   targetKitCount,
   onUpdateTargetKitCount,
+  forwardSampleData,
+  onForwardConsumed,
 }: FinalPurchaseTabProps) {
   const { showToast } = useToast();
   const { confirm, ConfirmDialog } = useConfirm();
@@ -182,10 +196,37 @@ export default function FinalPurchaseTab({
     dimHeight: '',
     dimWidth: '',
     dimLength: '',
+    volume: '',
     moq: '',
     productionRound: '',
     notes: '',
   });
+
+  // Handle forward from samples tab
+  useEffect(() => {
+    if (forwardSampleData) {
+      const sup = [...suppliers, ...allSuppliers].find((s) => s.supplierId === forwardSampleData.supplierId);
+      setProductForm({
+        kitProductId: forwardSampleData.kitProductId,
+        newProductName: '',
+        supplierId: forwardSampleData.supplierId,
+        supplierSearch: sup?.name || '',
+        quantity: '',
+        quantityPerKit: '',
+        pricePerUnit: '',
+        weight: forwardSampleData.weight || '',
+        dimHeight: forwardSampleData.dimHeight || '',
+        dimWidth: forwardSampleData.dimWidth || '',
+        dimLength: forwardSampleData.dimLength || '',
+        volume: forwardSampleData.volume || '',
+        moq: '',
+        productionRound: '',
+        notes: forwardSampleData.notes || '',
+      });
+      setShowAddProduct(true);
+      onForwardConsumed?.();
+    }
+  }, [forwardSampleData]);
 
   // Cost form
   const [showAddCost, setShowAddCost] = useState(false);
@@ -310,7 +351,7 @@ export default function FinalPurchaseTab({
   const totalKitAmounts = kitAmounts.length > 0 ? Math.min(...kitAmounts) : 0;
 
   // Product handlers
-  const resetProductForm = () => setProductForm({ kitProductId: '', newProductName: '', supplierId: '', supplierSearch: '', quantity: '', quantityPerKit: '', pricePerUnit: '', weight: '', dimHeight: '', dimWidth: '', dimLength: '', moq: '', productionRound: '', notes: '' });
+  const resetProductForm = () => setProductForm({ kitProductId: '', newProductName: '', supplierId: '', supplierSearch: '', quantity: '', quantityPerKit: '', pricePerUnit: '', weight: '', dimHeight: '', dimWidth: '', dimLength: '', volume: '', moq: '', productionRound: '', notes: '' });
 
   const handleAddProduct = async () => {
     let productId = productForm.kitProductId;
@@ -331,6 +372,7 @@ export default function FinalPurchaseTab({
         quantityPerKit: productForm.quantityPerKit ? parseFloat(productForm.quantityPerKit) : undefined,
         pricePerUnit: ppu,
         weight: productForm.weight ? parseFloat(productForm.weight) : undefined,
+        volume: productForm.volume ? parseFloat(productForm.volume) : undefined,
         dimHeight: productForm.dimHeight ? parseFloat(productForm.dimHeight) : undefined,
         dimWidth: productForm.dimWidth ? parseFloat(productForm.dimWidth) : undefined,
         dimLength: productForm.dimLength ? parseFloat(productForm.dimLength) : undefined,
@@ -358,6 +400,7 @@ export default function FinalPurchaseTab({
         quantityPerKit: productForm.quantityPerKit ? parseFloat(productForm.quantityPerKit) : undefined,
         pricePerUnit: ppu,
         weight: productForm.weight ? parseFloat(productForm.weight) : undefined,
+        volume: productForm.volume ? parseFloat(productForm.volume) : undefined,
         dimHeight: productForm.dimHeight ? parseFloat(productForm.dimHeight) : undefined,
         dimWidth: productForm.dimWidth ? parseFloat(productForm.dimWidth) : undefined,
         dimLength: productForm.dimLength ? parseFloat(productForm.dimLength) : undefined,
@@ -391,6 +434,7 @@ export default function FinalPurchaseTab({
       dimHeight: fp.dimHeight?.toString() || '',
       dimWidth: fp.dimWidth?.toString() || '',
       dimLength: fp.dimLength?.toString() || '',
+      volume: fp.volume?.toString() || '',
       moq: fp.moq?.toString() || '',
       productionRound: fp.productionRound || '',
       notes: fp.notes || '',
@@ -976,19 +1020,14 @@ export default function FinalPurchaseTab({
             <Input id="fpWeight" label="משקל (גרם)" type="number" value={productForm.weight} onChange={(e) => setProductForm({ ...productForm, weight: e.target.value })} />
             <Input id="fpMoq" label="MOQ" type="number" value={productForm.moq} onChange={(e) => setProductForm({ ...productForm, moq: e.target.value })} />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">מידות (מ&quot;מ)</label>
-            <div className="grid grid-cols-4 gap-2 items-end">
-              <Input id="fpDimH" label="" type="number" value={productForm.dimHeight} onChange={(e) => setProductForm({ ...productForm, dimHeight: e.target.value })} placeholder="גובה" />
-              <Input id="fpDimW" label="" type="number" value={productForm.dimWidth} onChange={(e) => setProductForm({ ...productForm, dimWidth: e.target.value })} placeholder="רוחב" />
-              <Input id="fpDimL" label="" type="number" value={productForm.dimLength} onChange={(e) => setProductForm({ ...productForm, dimLength: e.target.value })} placeholder="אורך" />
-              <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 text-center">
-                {productForm.dimHeight && productForm.dimWidth && productForm.dimLength
-                  ? `${formatNumber((parseFloat(productForm.dimHeight) * parseFloat(productForm.dimWidth) * parseFloat(productForm.dimLength)) / 1_000_000_000, 4)} CBM`
-                  : '- CBM'}
-              </div>
-            </div>
-          </div>
+          <DimensionInput
+            dimHeight={productForm.dimHeight}
+            dimWidth={productForm.dimWidth}
+            dimLength={productForm.dimLength}
+            volume={productForm.volume}
+            onDimChange={(field, value) => setProductForm({ ...productForm, [field]: value })}
+            onVolumeChange={(value) => setProductForm({ ...productForm, volume: value, dimHeight: '', dimWidth: '', dimLength: '' })}
+          />
           <Input id="fpRound" label="Lead Time" value={productForm.productionRound} onChange={(e) => setProductForm({ ...productForm, productionRound: e.target.value })} placeholder="לדוגמה: 25 ימים" />
           <Input id="fpNotes" label="הערות" value={productForm.notes} onChange={(e) => setProductForm({ ...productForm, notes: e.target.value })} />
           <div className="flex justify-end gap-3 pt-4">

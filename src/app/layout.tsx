@@ -3,6 +3,7 @@ import { Heebo } from 'next/font/google';
 import './globals.css';
 import { ToastProvider } from '@/components/ui/Toast';
 import ConvexClientProvider from '@/components/ConvexClientProvider';
+import AppShell from '@/components/navigation/AppShell';
 
 const heebo = Heebo({
   subsets: ['hebrew', 'latin'],
@@ -23,7 +24,9 @@ export default function RootLayout({
     <html lang="he" dir="rtl">
       <body className={`${heebo.variable} font-sans antialiased bg-gray-50`}>
         <ConvexClientProvider>
-          <ToastProvider>{children}</ToastProvider>
+          <ToastProvider>
+            <AppShell>{children}</AppShell>
+          </ToastProvider>
         </ConvexClientProvider>
       </body>
     </html>
