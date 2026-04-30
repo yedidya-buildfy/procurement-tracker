@@ -165,6 +165,7 @@ export default function FinalPurchaseTab({
   const addFileMutation = useMutation(api.kits.addFinalProductFile);
   const deleteFileMutation = useMutation(api.kits.deleteFinalProductFile);
   const updateSupplierMutation = useMutation(api.suppliers.updateSupplier);
+  const addSupplierMutation = useMutation(api.suppliers.addSupplier);
 
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [chatUrlModal, setChatUrlModal] = useState<{ supplierId: string; currentUrl: string } | null>(null);
@@ -395,7 +396,7 @@ export default function FinalPurchaseTab({
       const total = qty && ppu ? qty * ppu : undefined;
       await updateFinalProductMutation({
         kitFinalProductId: editingProductId,
-        supplierId: productForm.supplierId || undefined,
+        supplierId: productForm.supplierId || '',
         quantity: qty,
         quantityPerKit: productForm.quantityPerKit ? parseFloat(productForm.quantityPerKit) : undefined,
         pricePerUnit: ppu,
@@ -969,6 +970,7 @@ export default function FinalPurchaseTab({
         isOpen={showAddProduct || !!editingProductId}
         onClose={() => { setShowAddProduct(false); setEditingProductId(null); resetProductForm(); }}
         title={editingProductId ? 'עריכת פריט' : 'הוסף פריט'}
+        size="lg"
       >
         <div className="space-y-4">
           {!editingProductId && (
@@ -993,6 +995,21 @@ export default function FinalPurchaseTab({
                   {filteredSupplierSuggestions.map((s) => (
                     <button key={s.supplierId} onClick={() => setProductForm({ ...productForm, supplierId: s.supplierId, supplierSearch: s.name })} className="w-full text-right px-3 py-2 hover:bg-blue-50 text-sm">{s.name}</button>
                   ))}
+                  {!filteredSupplierSuggestions.some((s) => s.name.toLowerCase() === productForm.supplierSearch.toLowerCase()) && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const newId = await addSupplierMutation({ name: productForm.supplierSearch.trim() });
+                          setProductForm({ ...productForm, supplierId: newId, supplierSearch: productForm.supplierSearch.trim() });
+                          showToast(`ספק "${productForm.supplierSearch.trim()}" נוצר`, 'success');
+                        } catch { showToast('שגיאה ביצירת ספק', 'error'); }
+                      }}
+                      className="w-full text-right px-3 py-2 hover:bg-green-50 text-sm text-green-700 border-t border-gray-100 flex items-center gap-1.5"
+                    >
+                      <PlusIcon className="w-4 h-4 inline" />
+                      <span>צור ספק חדש: &quot;{productForm.supplierSearch.trim()}&quot;</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1008,7 +1025,7 @@ export default function FinalPurchaseTab({
             <Input id="fpQuantityPerKit" label="כמות בערכה" type="number" value={productForm.quantityPerKit} onChange={(e) => setProductForm({ ...productForm, quantityPerKit: e.target.value })} />
             <Input id="fpPricePerUnit" label="מחיר ליחידה ($)" type="number" value={productForm.pricePerUnit} onChange={(e) => setProductForm({ ...productForm, pricePerUnit: e.target.value })} />
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">סה"כ ($)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1 whitespace-nowrap">סה"כ ($)</label>
               <p className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 font-medium">
                 {productForm.quantity && productForm.pricePerUnit
                   ? `$${formatNumber(parseFloat(productForm.quantity) * parseFloat(productForm.pricePerUnit))}`

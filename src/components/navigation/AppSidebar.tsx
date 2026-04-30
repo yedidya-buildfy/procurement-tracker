@@ -7,15 +7,23 @@ import { usePathname } from 'next/navigation';
 import {
   BeakerIcon,
   CubeIcon,
+  ShoppingCartIcon,
   MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 
 const navItems = [
   {
-    label: 'ערכות ודוגמיות',
+    label: 'מוצרים ודוגמיות',
     href: '/kits',
     icon: BeakerIcon,
     matchPrefix: '/kits',
+  },
+  {
+    label: 'רכישה סופית',
+    href: '/final-purchase',
+    icon: ShoppingCartIcon,
+    matchPrefix: '/final-purchase',
+    matchPattern: /\/kits\/[^/]+\/final/,
   },
   {
     label: 'הזמנות',
@@ -25,7 +33,7 @@ const navItems = [
     matchExact: '/',
   },
   {
-    label: 'חיפוש מעקב',
+    label: 'חיפוש מתקדם',
     href: '/kits/tracking-search',
     icon: MagnifyingGlassIcon,
     matchExact: '/kits/tracking-search',
@@ -37,10 +45,19 @@ export default function AppSidebar() {
   const [expanded, setExpanded] = useState(false);
 
   const isActive = (item: (typeof navItems)[number]) => {
-    if (item.matchExact === pathname) return true;
-    if (item.matchExact === '/kits/tracking-search') return false;
-    if (item.matchPrefix && pathname.startsWith(item.matchPrefix)) return true;
-    if (item.matchExact === '/' && pathname === '/') return true;
+    if (item.matchExact && item.matchExact === pathname) return true;
+    if ('matchPattern' in item && item.matchPattern && item.matchPattern.test(pathname)) return true;
+    if (item.matchPrefix && pathname.startsWith(item.matchPrefix)) {
+      // Check if a more specific item matches instead
+      const moreSpecific = navItems.find(
+        (other) =>
+          other !== item &&
+          ((other.matchExact && other.matchExact === pathname) ||
+           ('matchPattern' in other && other.matchPattern && (other.matchPattern as RegExp).test(pathname)))
+      );
+      if (moreSpecific) return false;
+      return true;
+    }
     return false;
   };
 

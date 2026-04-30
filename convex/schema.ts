@@ -280,4 +280,18 @@ export default defineSchema({
     fileType: v.string(),
   })
     .index("by_productId", ["productId"]),
+
+  kitSampleViews: defineTable({
+    viewId: v.string(),
+    kitId: v.string(),
+    name: v.string(),
+    order: v.number(),
+    filters: v.object({
+      stages: v.optional(v.array(v.number())),
+      hasImage: v.optional(v.boolean()),
+    }),
+    createdDate: v.string(),
+  })
+    .index("by_kitId", ["kitId"])
+    .index("by_viewId", ["viewId"]),
 });

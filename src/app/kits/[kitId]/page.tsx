@@ -2,6 +2,7 @@
 
 import { useState, use } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../../convex/_generated/api';
 import Button from '@/components/ui/Button';
@@ -9,18 +10,14 @@ import Card from '@/components/ui/Card';
 import Spinner from '@/components/ui/Spinner';
 import { useToast } from '@/components/ui/Toast';
 import { useConfirm } from '@/components/ui/useConfirm';
-import SamplesTab from '@/components/kits/SamplesTab';
-import FinalPurchaseTab from '@/components/kits/FinalPurchaseTab';
 import {
   PencilIcon,
   TrashIcon,
   BeakerIcon,
   CubeIcon,
-  MagnifyingGlassIcon,
-  XMarkIcon,
+  ShoppingCartIcon,
+  ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
-
-type TabId = 'samples' | 'final';
 
 export default function KitPage({ params }: { params: Promise<{ kitId: string }> }) {
   const { kitId } = use(params);
@@ -29,23 +26,9 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
   const { confirm, ConfirmDialog } = useConfirm();
 
   const data = useQuery(api.kits.getKitFull, { kitId });
-  const allSuppliers = useQuery(api.suppliers.getAllSuppliers);
-  const allKitsRaw = useQuery(api.kits.getAllKits);
   const updateKitMutation = useMutation(api.kits.updateKit);
   const deleteKitMutation = useMutation(api.kits.deleteKit);
 
-  const [activeTab, setActiveTab] = useState<TabId>('samples');
-  const [kitSearch, setKitSearch] = useState('');
-  const [forwardSampleData, setForwardSampleData] = useState<{
-    kitProductId: string;
-    supplierId: string;
-    weight?: string;
-    volume?: string;
-    dimHeight?: string;
-    dimWidth?: string;
-    dimLength?: string;
-    notes?: string;
-  } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedKit, setEditedKit] = useState<{
     name?: string;
@@ -89,7 +72,7 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
     }
   };
 
-  if (data === undefined || allSuppliers === undefined || allKitsRaw === undefined) {
+  if (data === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Spinner size="lg" />
@@ -105,16 +88,11 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
     );
   }
 
-  const { kit, products, samples, sampleMilestones, trackingNumbers, sampleImages, finalProducts, finalProductFiles, costs, costFiles, suppliers } = data;
-
-  const tabs: { id: TabId; label: string }[] = [
-    { id: 'samples', label: `מוצרים ודוגמיות (${products.length})` },
-    { id: 'final', label: `קנייה סופית (${finalProducts.length + costs.length})` },
-  ];
+  const { kit, products, samples, finalProducts, costs, suppliers } = data;
 
   return (
     <div className="min-h-screen">
-      <main className="mx-auto px-4 py-6">
+      <main className="max-w-4xl mx-auto px-4 py-6">
         {/* Page Title & Actions */}
         <div className="flex items-center gap-4 mb-6">
           <div className="flex-1">
@@ -173,8 +151,9 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
             )}
           </div>
         </div>
+
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <Card>
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-100 rounded-lg">
@@ -186,7 +165,6 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
               </div>
             </div>
           </Card>
-
           <Card>
             <div className="flex items-center gap-3">
               <div className="p-2 bg-green-100 rounded-lg">
@@ -198,11 +176,21 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
               </div>
             </div>
           </Card>
-
           <Card>
             <div className="flex items-center gap-3">
               <div className="p-2 bg-purple-100 rounded-lg">
-                <CubeIcon className="w-5 h-5 text-purple-600" />
+                <ShoppingCartIcon className="w-5 h-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">רכישה סופית</p>
+                <p className="text-lg font-bold text-gray-900">{finalProducts.length}</p>
+              </div>
+            </div>
+          </Card>
+          <Card>
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <CubeIcon className="w-5 h-5 text-orange-600" />
               </div>
               <div>
                 <p className="text-xs text-gray-500">ספקים</p>
@@ -212,88 +200,56 @@ export default function KitPage({ params }: { params: Promise<{ kitId: string }>
           </Card>
         </div>
 
-        {/* Tabs */}
-        <div className="bg-white rounded-xl shadow-sm border">
-          <div className="border-b">
-            <nav className="flex items-center gap-1 p-1">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                    activeTab === tab.id
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-              <div className="mr-auto flex items-center gap-1.5">
-                <div className="relative">
-                  <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={kitSearch}
-                    onChange={(e) => setKitSearch(e.target.value)}
-                    placeholder="חפש בערכה..."
-                    className="pr-8 pl-7 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 w-52"
-                  />
-                  {kitSearch && (
-                    <button
-                      onClick={() => setKitSearch('')}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      <XMarkIcon className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+        {/* Navigation Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Link
+            href={`/kits/${kitId}/samples`}
+            className="block bg-white rounded-xl shadow-sm border p-6 hover:shadow-md hover:border-green-300 transition-all group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-green-100 rounded-xl group-hover:bg-green-200 transition-colors">
+                  <BeakerIcon className="w-7 h-7 text-green-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">מוצרים ודוגמיות</h2>
+                  <p className="text-sm text-gray-500">
+                    {products.length} מוצרים, {samples.length} דוגמיות
+                  </p>
                 </div>
               </div>
-            </nav>
-          </div>
+              <ArrowLeftIcon className="w-5 h-5 text-gray-400 group-hover:text-green-600 transition-colors" />
+            </div>
+          </Link>
 
-          <div className="p-2">
-            {activeTab === 'samples' && (
-              <SamplesTab
-                kitId={kitId}
-                products={products}
-                samples={samples}
-                sampleMilestones={sampleMilestones}
-                trackingNumbers={trackingNumbers}
-                sampleImages={sampleImages}
-                suppliers={suppliers}
-                allSuppliers={allSuppliers}
-                allKits={(allKitsRaw || []).map((k) => ({ kitId: k.kitId, name: k.name }))}
-                kitSearch={kitSearch}
-                onForwardToFinal={(data) => {
-                  setForwardSampleData(data);
-                  setActiveTab('final');
-                }}
-              />
-            )}
-            {activeTab === 'final' && (
-              <FinalPurchaseTab
-                kitId={kitId}
-                products={products}
-                finalProducts={finalProducts}
-                finalProductFiles={finalProductFiles}
-                costs={costs}
-                costFiles={costFiles}
-                suppliers={suppliers}
-                allSuppliers={allSuppliers}
-                kitSearch={kitSearch}
-                samples={samples}
-                sampleImages={sampleImages}
-                forwardSampleData={forwardSampleData}
-                onForwardConsumed={() => setForwardSampleData(null)}
-                targetKitCount={kit.targetKitCount}
-                onUpdateTargetKitCount={async (count) => {
-                  await updateKitMutation({ kitId, targetKitCount: count });
-                }}
-              />
-            )}
-          </div>
+          <Link
+            href={`/kits/${kitId}/final`}
+            className="block bg-white rounded-xl shadow-sm border p-6 hover:shadow-md hover:border-purple-300 transition-all group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-purple-100 rounded-xl group-hover:bg-purple-200 transition-colors">
+                  <ShoppingCartIcon className="w-7 h-7 text-purple-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">רכישה סופית</h2>
+                  <p className="text-sm text-gray-500">
+                    {finalProducts.length} פריטים, {costs.length} עלויות
+                  </p>
+                </div>
+              </div>
+              <ArrowLeftIcon className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transition-colors" />
+            </div>
+          </Link>
         </div>
+
+        {/* Notes */}
+        {kit.notes && (
+          <div className="mt-6 bg-white rounded-xl shadow-sm border p-6">
+            <h3 className="text-sm font-medium text-gray-500 mb-2">הערות</h3>
+            <p className="text-gray-900">{kit.notes}</p>
+          </div>
+        )}
       </main>
       {ConfirmDialog}
     </div>

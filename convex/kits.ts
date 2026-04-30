@@ -60,6 +60,46 @@ export const getAllKits = query({
   },
 });
 
+export const getAllKitsWithFinalCounts = query({
+  args: {},
+  handler: async (ctx) => {
+    const kits = await ctx.db.query("kits").collect();
+
+    const results = await Promise.all(
+      kits.map(async (kit) => {
+        const products = await ctx.db
+          .query("kitProducts")
+          .withIndex("by_kitId", (q) => q.eq("kitId", kit.kitId))
+          .collect();
+
+        let finalProductCount = 0;
+        for (const product of products) {
+          const fps = await ctx.db
+            .query("kitFinalProducts")
+            .withIndex("by_kitProductId", (q) => q.eq("kitProductId", product.kitProductId))
+            .collect();
+          finalProductCount += fps.length;
+        }
+
+        const costs = await ctx.db
+          .query("kitAdditionalCosts")
+          .withIndex("by_kitId", (q) => q.eq("kitId", kit.kitId))
+          .collect();
+
+        return {
+          kitId: kit.kitId,
+          name: kit.name,
+          status: kit.status,
+          finalProductCount,
+          costCount: costs.length,
+        };
+      })
+    );
+
+    return results;
+  },
+});
+
 export const getKitFull = query({
   args: { kitId: v.string() },
   handler: async (ctx, { kitId }) => {
@@ -912,7 +952,7 @@ export const updateKitFinalProduct = mutation({
     if (!fp) return false;
 
     const updates: Record<string, unknown> = {};
-    if (args.supplierId !== undefined) updates.supplierId = args.supplierId;
+    if (args.supplierId !== undefined) updates.supplierId = args.supplierId || undefined;
     if (args.quantity !== undefined) updates.quantity = args.quantity;
     if (args.quantityPerKit !== undefined) updates.quantityPerKit = args.quantityPerKit;
     if (args.pricePerUnit !== undefined) updates.pricePerUnit = args.pricePerUnit;

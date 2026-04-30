@@ -40,6 +40,30 @@ function buildCrumbs(pathname: string): Crumb[] {
     ];
   }
 
+  // /kits/[kitId]/samples
+  const kitSamplesMatch = pathname.match(/^\/kits\/([^/]+)\/samples$/);
+  if (kitSamplesMatch) {
+    return [
+      { label: 'ערכות ודוגמיות', href: '/kits' },
+      { label: <KitNameCrumb kitId={kitSamplesMatch[1]} />, href: `/kits/${kitSamplesMatch[1]}` },
+      { label: 'דוגמיות' },
+    ];
+  }
+
+  // /kits/[kitId]/final
+  const kitFinalMatch = pathname.match(/^\/kits\/([^/]+)\/final$/);
+  if (kitFinalMatch) {
+    return [
+      { label: 'רכישה סופית', href: '/final-purchase' },
+      { label: <KitNameCrumb kitId={kitFinalMatch[1]} /> },
+    ];
+  }
+
+  // /final-purchase
+  if (pathname === '/final-purchase') {
+    return [{ label: 'רכישה סופית' }];
+  }
+
   // /kits/[kitId]
   const kitMatch = pathname.match(/^\/kits\/([^/]+)$/);
   if (kitMatch) {

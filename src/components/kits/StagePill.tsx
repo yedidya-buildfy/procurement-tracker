@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { SAMPLE_STAGES, getStageStyle } from '@/lib/sampleStages';
-import { CheckCircleIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 
 interface StagePillProps {
   currentStage: number | undefined | null;
@@ -33,12 +33,14 @@ export default function StagePill({ currentStage, onStageChange }: StagePillProp
       {/* The single pill */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all ${style.bg} ${style.text} hover:shadow-sm hover:scale-105`}
+        title="לחץ לשינוי שלב"
+        className={`inline-flex items-center gap-1.5 pr-3 pl-2 py-1 rounded-full text-xs font-medium transition-all ${style.bg} ${style.text} hover:shadow-sm hover:scale-105`}
       >
         {currentStage != null && (
           <span className={`w-2 h-2 rounded-full ${SAMPLE_STAGES[currentStage]?.activeBg || 'bg-gray-400'}`} />
         )}
         {currentName || 'לא הוזמן'}
+        <ChevronDownIcon className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {/* Dropdown */}

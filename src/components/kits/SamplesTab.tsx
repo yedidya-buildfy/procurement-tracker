@@ -11,8 +11,10 @@ import DimensionInput from '@/components/ui/DimensionInput';
 import { useToast } from '@/components/ui/Toast';
 import { useConfirm } from '@/components/ui/useConfirm';
 import StagePill from './StagePill';
+import SampleViewModal, { SampleViewFilters } from './SampleViewModal';
 import Link from 'next/link';
 import { SAMPLE_STAGES } from '@/lib/sampleStages';
+import { exportSamplesToXLSX, stageToEnglish, trackingLegToEnglish, SampleExportRow } from '@/lib/exportSamples';
 import {
   PlusIcon,
   TrashIcon,
@@ -32,6 +34,8 @@ import {
   AdjustmentsHorizontalIcon,
   ChatBubbleLeftRightIcon,
   ArrowUpOnSquareIcon,
+  Squares2X2Icon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarSolid } from '@heroicons/react/24/solid';
 import { Doc, Id } from '../../../convex/_generated/dataModel';
@@ -74,6 +78,11 @@ interface SampleImage {
   caption?: string;
 }
 
+type ActiveTab =
+  | { type: 'all' }
+  | { type: 'product'; productId: string }
+  | { type: 'view'; viewId: string };
+
 interface SamplesTabProps {
   kitId: string;
   products: Doc<'kitProducts'>[];
@@ -84,6 +93,7 @@ interface SamplesTabProps {
   suppliers: Doc<'suppliers'>[];
   allSuppliers: Doc<'suppliers'>[];
   allKits: KitSummary[];
+  views: Doc<'kitSampleViews'>[];
   kitSearch?: string;
   onForwardToFinal?: (data: {
     kitProductId: string;
@@ -107,6 +117,7 @@ export default function SamplesTab({
   suppliers,
   allSuppliers,
   allKits,
+  views,
   kitSearch = '',
   onForwardToFinal,
 }: SamplesTabProps) {
@@ -128,10 +139,17 @@ export default function SamplesTab({
   const generateUploadUrlMutation = useMutation(api.kits.generateUploadUrl);
   const addImageMutation = useMutation(api.kits.addSampleImage);
   const deleteImageMutation = useMutation(api.kits.deleteSampleImage);
+  const deleteViewMutation = useMutation(api.kitSampleViews.deleteView);
 
-  const [activeProductId, setActiveProductId] = useState<string>(
-    products[0]?.kitProductId || ''
-  );
+  const [activeTab, setActiveTab] = useState<ActiveTab>({ type: 'all' });
+  const activeProductId = activeTab.type === 'product' ? activeTab.productId : '';
+  const isMultiProductScope = activeTab.type !== 'product';
+  const [showAddTabMenu, setShowAddTabMenu] = useState(false);
+  const [viewModal, setViewModal] = useState<
+    | { mode: 'create' }
+    | { mode: 'edit'; viewId: string; name: string; filters: SampleViewFilters }
+    | null
+  >(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [newProduct, setNewProduct] = useState({ name: '', category: '', notes: '' });
   const [editingProduct, setEditingProduct] = useState<string | null>(null);
@@ -172,6 +190,7 @@ export default function SamplesTab({
 
   // Filter & sort
   const [starFilter, setStarFilter] = useState<number | null>(null);
+  const [stageFilter, setStageFilter] = useState<number[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -187,7 +206,12 @@ export default function SamplesTab({
   const [selectedSampleIds, setSelectedSampleIds] = useState<Set<string>>(new Set());
   const [bulkStageValue, setBulkStageValue] = useState<number>(0);
 
-  const activeProduct = products.find((p) => p.kitProductId === activeProductId);
+  const activeProduct = activeTab.type === 'product'
+    ? products.find((p) => p.kitProductId === activeTab.productId)
+    : undefined;
+  const activeView = activeTab.type === 'view'
+    ? views.find((v) => v.viewId === activeTab.viewId)
+    : undefined;
 
   const getSupplierName = (supplierId: string) => {
     const allSups = [...suppliers, ...allSuppliers];
@@ -251,14 +275,47 @@ export default function SamplesTab({
     return matched;
   }, [kitSearch, samples, suppliers, allSuppliers, trackingNumbers]);
 
-  // Filter and sort samples
-  const productSamplesAll = samples.filter((s) => s.kitProductId === activeProductId);
+  // Filter and sort samples — scope depends on the active tab.
+  const sampleImageCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const img of sampleImages) {
+      counts.set(img.sampleId, (counts.get(img.sampleId) || 0) + 1);
+    }
+    return counts;
+  }, [sampleImages]);
+
+  const productSamplesAll = useMemo(() => {
+    if (activeTab.type === 'product') {
+      return samples.filter((s) => s.kitProductId === activeTab.productId);
+    }
+    // 'all' or 'view' — span every sample in the kit (samples are already kit-scoped via getKitFull)
+    let scope = samples;
+    if (activeTab.type === 'view' && activeView) {
+      const { stages, hasImage } = activeView.filters;
+      scope = scope.filter((s) => {
+        if (stages && stages.length > 0) {
+          const stageId = s.currentStage ?? -1;
+          if (!stages.includes(stageId)) return false;
+        }
+        if (hasImage !== undefined) {
+          const has = (sampleImageCount.get(s.sampleId) || 0) > 0;
+          if (has !== hasImage) return false;
+        }
+        return true;
+      });
+    }
+    return scope;
+  }, [samples, activeTab, activeView, sampleImageCount]);
   const archivedCount = productSamplesAll.filter((s) => s.archived).length;
   const productSamplesRaw = productSamplesAll.filter((s) => showArchived || !s.archived);
   const productSamples = productSamplesRaw
     .filter((s) => {
       if (starFilter !== null) {
         if (starFilter === 0 ? s.rating : s.rating !== starFilter) return false;
+      }
+      if (stageFilter.length > 0) {
+        const stageId = s.currentStage ?? -1;
+        if (!stageFilter.includes(stageId)) return false;
       }
       if (trackingMatchedSampleIds !== null && !trackingMatchedSampleIds.has(s.sampleId)) return false;
       if (kitSearchMatched !== null && !kitSearchMatched.has(s.sampleId)) return false;
@@ -268,6 +325,12 @@ export default function SamplesTab({
       if (!sortKey) return 0;
       let cmp = 0;
       switch (sortKey) {
+        case 'product': {
+          const aName = products.find((p) => p.kitProductId === a.kitProductId)?.name || '';
+          const bName = products.find((p) => p.kitProductId === b.kitProductId)?.name || '';
+          cmp = aName.localeCompare(bName);
+          break;
+        }
         case 'supplier':
           cmp = getSupplierName(a.supplierId).localeCompare(getSupplierName(b.supplierId));
           break;
@@ -314,7 +377,7 @@ export default function SamplesTab({
       showToast('מוצר נוסף בהצלחה', 'success');
       setShowAddProduct(false);
       setNewProduct({ name: '', category: '', notes: '' });
-      setActiveProductId(id);
+      setActiveTab({ type: 'product', productId: id });
     } catch (error) {
       console.error('Error adding product:', error);
       showToast('שגיאה בהוספת מוצר', 'error');
@@ -337,12 +400,26 @@ export default function SamplesTab({
     try {
       await deleteProductMutation({ kitProductId });
       showToast('מוצר נמחק', 'success');
-      if (activeProductId === kitProductId) {
-        setActiveProductId(products.find((p) => p.kitProductId !== kitProductId)?.kitProductId || '');
+      if (activeTab.type === 'product' && activeTab.productId === kitProductId) {
+        setActiveTab({ type: 'all' });
       }
     } catch (error) {
       console.error('Error deleting product:', error);
       showToast('שגיאה במחיקת מוצר', 'error');
+    }
+  };
+
+  const handleDeleteView = async (viewId: string) => {
+    if (!(await confirm('האם למחוק את התצוגה?'))) return;
+    try {
+      await deleteViewMutation({ viewId });
+      showToast('תצוגה נמחקה', 'success');
+      if (activeTab.type === 'view' && activeTab.viewId === viewId) {
+        setActiveTab({ type: 'all' });
+      }
+    } catch (error) {
+      console.error('Error deleting view:', error);
+      showToast('שגיאה במחיקת תצוגה', 'error');
     }
   };
 
@@ -530,6 +607,67 @@ export default function SamplesTab({
     }
   };
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportSamples = async (mode: 'selected' | 'visible') => {
+    const target =
+      mode === 'selected'
+        ? productSamples.filter((s) => selectedSampleIds.has(s.sampleId))
+        : productSamples;
+
+    if (target.length === 0) {
+      showToast('אין דוגמיות לייצוא', 'error');
+      return;
+    }
+
+    const rows: SampleExportRow[] = target.map((s) => {
+      const productName = products.find((p) => p.kitProductId === s.kitProductId)?.name || '';
+      const supplierName = getSupplierName(s.supplierId);
+      const tracks = trackingNumbers.filter((t) => t.sampleId === s.sampleId);
+      const trackingStr = tracks
+        .map((t) => `${trackingLegToEnglish(t.leg)}: ${t.trackingNumber}`)
+        .join(' | ');
+      const imageUrls = sampleImages
+        .filter((i) => i.sampleId === s.sampleId)
+        .map((i) => i.url)
+        .filter((url): url is string => !!url);
+
+      return {
+        productName,
+        supplierName,
+        costUSD: s.sampleCost ?? null,
+        stage: stageToEnglish(s.currentStage),
+        trackingNumbers: trackingStr,
+        rating: s.rating ?? null,
+        ratingNotes: s.ratingNotes || '',
+        notes: s.notes || '',
+        archived: !!s.archived,
+        imageUrls,
+        createdDate: s.createdDate,
+      };
+    });
+
+    const today = new Date().toISOString().split('T')[0];
+    const scopeLabel =
+      activeTab.type === 'product'
+        ? products.find((p) => p.kitProductId === activeTab.productId)?.name || 'product'
+        : activeTab.type === 'view'
+          ? views.find((v) => v.viewId === activeTab.viewId)?.name || 'view'
+          : 'all';
+
+    setIsExporting(true);
+    showToast('מכין קובץ אקסל עם תמונות...', 'success');
+    try {
+      await exportSamplesToXLSX(rows, `samples-${scopeLabel}-${today}`);
+      showToast(`יוצאו ${rows.length} דוגמיות`, 'success');
+    } catch (err) {
+      console.error('Export failed:', err);
+      showToast('שגיאה בייצוא', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleBulkDelete = async () => {
     if (selectedSampleIds.size === 0) return;
     if (!(await confirm(`האם למחוק ${selectedSampleIds.size} דוגמיות?`))) return;
@@ -612,22 +750,45 @@ export default function SamplesTab({
 
   return (
     <div className="space-y-0">
-      {/* Product Tabs - Google Sheets style */}
+      {/* Tab Bar - Google Sheets style. Pinned "All", then product tabs, then saved-view tabs. */}
       <div className="flex items-center border-b bg-gray-50 rounded-t-lg overflow-x-auto">
+        {/* Pinned "All" tab */}
+        {(() => {
+          const isActive = activeTab.type === 'all';
+          return (
+            <div
+              key="__all__"
+              className={`relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-l border-gray-200 first:border-l-0 cursor-pointer select-none whitespace-nowrap transition-colors ${
+                isActive
+                  ? 'bg-white text-blue-700 border-b-2 border-b-blue-600 -mb-px'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+              onClick={() => setActiveTab({ type: 'all' })}
+              title="כל הדוגמיות בערכה"
+            >
+              <Squares2X2Icon className="w-4 h-4" />
+              <span>הכל</span>
+              <span className={`text-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-500'}`}>
+                {samples.length}
+              </span>
+            </div>
+          );
+        })()}
+
         {products.map((product) => {
           const count = samples.filter((s) => s.kitProductId === product.kitProductId).length;
-          const isActive = product.kitProductId === activeProductId;
+          const isActive = activeTab.type === 'product' && activeTab.productId === product.kitProductId;
           const isEditing = editingProduct === product.kitProductId;
 
           return (
             <div
               key={product.kitProductId}
-              className={`group relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-l border-gray-200 first:border-l-0 cursor-pointer select-none whitespace-nowrap transition-colors ${
+              className={`group relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-l border-gray-200 cursor-pointer select-none whitespace-nowrap transition-colors ${
                 isActive
                   ? 'bg-white text-blue-700 border-b-2 border-b-blue-600 -mb-px'
                   : 'text-gray-600 hover:bg-gray-100'
               }`}
-              onClick={() => setActiveProductId(product.kitProductId)}
+              onClick={() => setActiveTab({ type: 'product', productId: product.kitProductId })}
             >
               {isEditing ? (
                 <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -691,17 +852,97 @@ export default function SamplesTab({
           );
         })}
 
-        {/* Add product tab */}
-        <button
-          onClick={() => setShowAddProduct(true)}
-          className="flex items-center gap-1 px-3 py-2.5 text-sm text-gray-400 hover:text-blue-600 hover:bg-gray-100 transition-colors border-l border-gray-200"
-        >
-          <PlusIcon className="w-4 h-4" />
-        </button>
+        {/* Saved view tabs */}
+        {views.map((view) => {
+          const isActive = activeTab.type === 'view' && activeTab.viewId === view.viewId;
+          return (
+            <div
+              key={view.viewId}
+              className={`group relative flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-l border-gray-200 cursor-pointer select-none whitespace-nowrap transition-colors ${
+                isActive
+                  ? 'bg-white text-blue-700 border-b-2 border-b-blue-600 -mb-px'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+              onClick={() => setActiveTab({ type: 'view', viewId: view.viewId })}
+              title="תצוגה שמורה"
+            >
+              <FunnelIcon className="w-3.5 h-3.5 text-gray-400" />
+              <span>{view.name}</span>
+              <div className="hidden group-hover:flex items-center gap-0.5 mr-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setViewModal({
+                      mode: 'edit',
+                      viewId: view.viewId,
+                      name: view.name,
+                      filters: view.filters,
+                    });
+                  }}
+                  className="p-0.5 text-gray-400 hover:text-blue-600 rounded"
+                  title="ערוך"
+                >
+                  <PencilIcon className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteView(view.viewId);
+                  }}
+                  className="p-0.5 text-gray-400 hover:text-red-500 rounded"
+                  title="מחק"
+                >
+                  <TrashIcon className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Add tab popover */}
+        <div className="relative">
+          <button
+            onClick={() => setShowAddTabMenu((v) => !v)}
+            className="flex items-center gap-1 px-3 py-2.5 text-sm text-gray-400 hover:text-blue-600 hover:bg-gray-100 transition-colors border-l border-gray-200"
+            title="הוסף..."
+          >
+            <PlusIcon className="w-4 h-4" />
+          </button>
+          {showAddTabMenu && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setShowAddTabMenu(false)}
+              />
+              <div className="absolute z-20 top-full mt-1 right-0 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+                <button
+                  onClick={() => {
+                    setShowAddTabMenu(false);
+                    setShowAddProduct(true);
+                  }}
+                  className="w-full text-right px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <PlusIcon className="w-4 h-4 text-gray-400" />
+                  מוצר חדש
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddTabMenu(false);
+                    setViewModal({ mode: 'create' });
+                  }}
+                  className="w-full text-right px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <FunnelIcon className="w-4 h-4 text-gray-400" />
+                  תצוגה חדשה
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Table Content */}
-      {activeProduct ? (
+      {(activeTab.type !== 'product' || activeProduct) ? (
         <div className="bg-white">
           {/* Tracking Search */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
@@ -728,6 +969,15 @@ export default function SamplesTab({
               <AdjustmentsHorizontalIcon className="w-4 h-4" />
               חיפוש מתקדם
             </Link>
+            <button
+              onClick={() => handleExportSamples('visible')}
+              disabled={productSamples.length === 0 || isExporting}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-green-700 hover:text-green-800 hover:bg-green-50 rounded-lg transition-colors disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              title="ייצוא לאקסל (תצוגה נוכחית)"
+            >
+              <ArrowDownTrayIcon className="w-4 h-4" />
+              {isExporting ? 'מייצא...' : 'ייצוא לאקסל'}
+            </button>
           </div>
 
           {/* Bulk Actions Bar */}
@@ -752,6 +1002,14 @@ export default function SamplesTab({
                 </button>
               </div>
               <button
+                onClick={() => handleExportSamples('selected')}
+                disabled={isExporting}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:bg-green-400 disabled:cursor-not-allowed"
+              >
+                <ArrowDownTrayIcon className="w-3.5 h-3.5" />
+                {isExporting ? 'מייצא...' : 'ייצוא לאקסל'}
+              </button>
+              <button
                 onClick={handleBulkDelete}
                 className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
               >
@@ -766,6 +1024,46 @@ export default function SamplesTab({
               </button>
             </div>
           )}
+
+          {/* Stage Filter Bar */}
+          <div className="flex items-center flex-wrap gap-2 px-3 py-2 border-b border-gray-100">
+            <FunnelIcon className="w-4 h-4 text-gray-400" />
+            <span className="text-xs text-gray-500">איפה הדוגמית:</span>
+            <button
+              onClick={() => setStageFilter([])}
+              className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
+                stageFilter.length === 0 ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              הכל
+            </button>
+            <button
+              onClick={() =>
+                setStageFilter((prev) => (prev.includes(-1) ? prev.filter((s) => s !== -1) : [...prev, -1]))
+              }
+              className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
+                stageFilter.includes(-1) ? 'bg-gray-200 text-gray-700 font-medium' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              לא הוזמן
+            </button>
+            {SAMPLE_STAGES.map((stage) => {
+              const active = stageFilter.includes(stage.id);
+              return (
+                <button
+                  key={stage.id}
+                  onClick={() =>
+                    setStageFilter((prev) => (prev.includes(stage.id) ? prev.filter((s) => s !== stage.id) : [...prev, stage.id]))
+                  }
+                  className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
+                    active ? `${stage.bg} ${stage.text} font-medium` : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  {stage.name}
+                </button>
+              );
+            })}
+          </div>
 
           {/* Star Filter Bar */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
@@ -799,7 +1097,7 @@ export default function SamplesTab({
             >
               ללא דירוג
             </button>
-            {(starFilter !== null || showArchived) && (
+            {(starFilter !== null || stageFilter.length > 0 || showArchived) && (
               <span className="text-xs text-gray-400">
                 {productSamples.length} / {productSamplesAll.length}
               </span>
@@ -832,6 +1130,9 @@ export default function SamplesTab({
                       className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                     />
                   </th>
+                  {isMultiProductScope && (
+                    <SortHeader label="מוצר" sortKey="product" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="px-3" />
+                  )}
                   <SortHeader label="תמונה" sortKey="images" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-[72px] px-2" />
                   <SortHeader label="ספק" sortKey="supplier" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="px-3" />
                   <SortHeader label="עלות" sortKey="cost" currentKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-[70px] px-3" />
@@ -844,8 +1145,14 @@ export default function SamplesTab({
               <tbody>
                 {productSamples.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-8 text-center text-gray-400">
-                      {starFilter !== null || trackingMatchedSampleIds !== null ? 'אין דוגמיות תואמות לסינון' : 'אין דוגמיות למוצר זה'}
+                    <td colSpan={isMultiProductScope ? 9 : 8} className="px-3 py-8 text-center text-gray-400">
+                      {starFilter !== null || stageFilter.length > 0 || trackingMatchedSampleIds !== null
+                        ? 'אין דוגמיות תואמות לסינון'
+                        : activeTab.type === 'product'
+                          ? 'אין דוגמיות למוצר זה'
+                          : activeTab.type === 'view'
+                            ? 'אין דוגמיות תואמות לתצוגה'
+                            : 'אין דוגמיות בערכה'}
                     </td>
                   </tr>
                 ) : (
@@ -867,6 +1174,18 @@ export default function SamplesTab({
                             className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                           />
                         </td>
+                        {/* Product (cross-product views only) */}
+                        {isMultiProductScope && (
+                          <td className="px-3 py-2 align-middle whitespace-nowrap">
+                            <button
+                              onClick={() => setActiveTab({ type: 'product', productId: sample.kitProductId })}
+                              className="text-sm text-gray-700 hover:text-blue-600 hover:underline"
+                              title="עבור למוצר"
+                            >
+                              {products.find((p) => p.kitProductId === sample.kitProductId)?.name || '—'}
+                            </button>
+                          </td>
+                        )}
                         {/* Image - first column, big */}
                         <td className="px-2 py-1 align-middle">
                           <div className="flex items-center gap-1">
@@ -1115,20 +1434,22 @@ export default function SamplesTab({
             </table>
           </div>
 
-          {/* Add sample button */}
-          <div className="border-t border-gray-200 px-3 py-2">
-            <button
-              onClick={() => {
-                setShowAddSample(true);
-                setNewSample({ supplierId: '', supplierSearch: '', sampleCost: '', currentStage: 0, notes: '', weight: '', volume: '', dimHeight: '', dimWidth: '', dimLength: '' });
-                setNewSampleFiles([]);
-              }}
-              className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors"
-            >
-              <PlusIcon className="w-4 h-4" />
-              הוסף דוגמית
-            </button>
-          </div>
+          {/* Add sample button — only on a product tab; cross-product views don't have an implicit product to attach to */}
+          {activeTab.type === 'product' && (
+            <div className="border-t border-gray-200 px-3 py-2">
+              <button
+                onClick={() => {
+                  setShowAddSample(true);
+                  setNewSample({ supplierId: '', supplierSearch: '', sampleCost: '', currentStage: 0, notes: '', weight: '', volume: '', dimHeight: '', dimWidth: '', dimLength: '' });
+                  setNewSampleFiles([]);
+                }}
+                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors"
+              >
+                <PlusIcon className="w-4 h-4" />
+                הוסף דוגמית
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="text-center py-12 text-gray-500 bg-white">
@@ -1361,6 +1682,17 @@ export default function SamplesTab({
         </>
       )}
       {ConfirmDialog}
+
+      {/* Sample View Modal (create/edit) */}
+      <SampleViewModal
+        isOpen={viewModal !== null}
+        onClose={() => setViewModal(null)}
+        kitId={kitId}
+        viewId={viewModal?.mode === 'edit' ? viewModal.viewId : undefined}
+        initialName={viewModal?.mode === 'edit' ? viewModal.name : ''}
+        initialFilters={viewModal?.mode === 'edit' ? viewModal.filters : undefined}
+        onSaved={(viewId) => setActiveTab({ type: 'view', viewId })}
+      />
 
       {/* Alibaba Chat URL Modal */}
       <Modal
