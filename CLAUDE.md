@@ -85,25 +85,33 @@ Coolify is not wired to a GitHub webhook. After pushing to `main` you must trigg
 curl -sH "$H" "$BASE/deploy?uuid=sscc044csgwwsco4ooowcgw0&force=true"
 ```
 
-### Convex schema — local dev cloud vs production self-hosted
+### Convex — single self-hosted database (local dev = prod)
 
-`.env.local` points at the cloud dev deployment (`giddy-crab-311.convex.cloud`). `npx convex dev` only updates that one. **Production lives on the self-hosted backend** at `https://convex.drive-buddy.com` and only refreshes when you run `npx convex deploy` against it with the self-hosted admin key.
+`.env.local` points at the **self-hosted production** Convex (`https://convex.drive-buddy.com`), not Convex Cloud. There is **one** Convex deployment; local `npm run dev` and the live `procurement.drive-buddy.com` app share the same data. Treat any local action as a production action.
 
-To deploy schema/mutation changes to production:
+The previous cloud dev deployment (`giddy-crab-311.convex.cloud`) is no longer in use; an old `.env.local.cloud-dev.bak` is preserved locally if you ever need to fork off again.
 
-```bash
-export CONVEX_SELF_HOSTED_URL=https://convex.drive-buddy.com
-export CONVEX_SELF_HOSTED_ADMIN_KEY=<from VPS: docker exec convex-backend-... ./generate_admin_key.sh>
-npx convex deploy
+`.env.local` holds:
+
+```
+CONVEX_SELF_HOSTED_URL=https://convex.drive-buddy.com
+CONVEX_SELF_HOSTED_ADMIN_KEY=<admin key>
+NEXT_PUBLIC_CONVEX_URL=https://convex.drive-buddy.com
 ```
 
-The admin key is **not** stored in this repo. To regenerate, SSH the VPS and exec into the convex-backend container.
+`CONVEX_DEPLOYMENT` must NOT be set when self-hosted vars are present — the CLI rejects the combination.
 
-If you ship a code change that calls a mutation with a new arg or queries a new table without first deploying the schema, the production frontend will throw `ArgumentValidationError: Object contains extra field …` and the feature silently fails for users. Always update the schema first, then trigger the Coolify deploy.
+To regenerate the admin key (if `.env.local` is lost or rotated):
+
+```bash
+ssh root@172.233.209.162 'docker exec backend-l8ckckkcsooo040gcog8goos ./generate_admin_key.sh'
+```
+
+`npx convex dev` and `npx convex deploy` both target the self-hosted backend automatically with these vars set. **Schema/mutation changes pushed via `npx convex dev` go straight to production**, so be deliberate — there is no staging layer.
 
 ### Releasing a change end-to-end
 
-1. Commit & push to `main`.
-2. `npx convex deploy` against the self-hosted backend (only if `convex/schema.ts` or any mutation/query validator changed).
-3. `curl -sH "$H" "$BASE/deploy?uuid=sscc044csgwwsco4ooowcgw0&force=true"` to build the new app image.
+1. While running `npx convex dev` locally, schema and function changes are auto-pushed to production.
+2. Commit & push the code to `main`.
+3. `curl -sH "$H" "$BASE/deploy?uuid=sscc044csgwwsco4ooowcgw0&force=true"` to build and roll out the new Next.js app image (no GitHub auto-deploy).
 4. Watch `curl -sH "$H" "$BASE/applications/sscc044csgwwsco4ooowcgw0/logs?lines=80"` for runtime errors.
