@@ -246,6 +246,7 @@ export const updateKit = mutation({
     status: v.optional(v.string()),
     notes: v.optional(v.string()),
     targetKitCount: v.optional(v.number()),
+    requirementsDoc: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const kit = await ctx.db
@@ -260,6 +261,7 @@ export const updateKit = mutation({
     if (args.status !== undefined) updates.status = args.status;
     if (args.notes !== undefined) updates.notes = args.notes;
     if (args.targetKitCount !== undefined) updates.targetKitCount = args.targetKitCount;
+    if (args.requirementsDoc !== undefined) updates.requirementsDoc = args.requirementsDoc;
 
     await ctx.db.patch(kit._id, updates);
     return true;
@@ -364,6 +366,7 @@ export const updateKitProduct = mutation({
     name: v.optional(v.string()),
     category: v.optional(v.string()),
     notes: v.optional(v.string()),
+    supplierOutreachMessage: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const product = await ctx.db
@@ -377,6 +380,7 @@ export const updateKitProduct = mutation({
     if (args.name !== undefined) updates.name = args.name;
     if (args.category !== undefined) updates.category = args.category;
     if (args.notes !== undefined) updates.notes = args.notes;
+    if (args.supplierOutreachMessage !== undefined) updates.supplierOutreachMessage = args.supplierOutreachMessage;
 
     await ctx.db.patch(product._id, updates);
     return true;

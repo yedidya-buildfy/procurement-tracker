@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { formatDate } from '@/lib/utils';
@@ -36,6 +36,7 @@ import {
   ArrowUpOnSquareIcon,
   Squares2X2Icon,
   ArrowDownTrayIcon,
+  ChatBubbleBottomCenterTextIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarSolid } from '@heroicons/react/24/solid';
 import { Doc, Id } from '../../../convex/_generated/dataModel';
@@ -144,7 +145,6 @@ export default function SamplesTab({
   const [activeTab, setActiveTab] = useState<ActiveTab>({ type: 'all' });
   const activeProductId = activeTab.type === 'product' ? activeTab.productId : '';
   const isMultiProductScope = activeTab.type !== 'product';
-  const [showAddTabMenu, setShowAddTabMenu] = useState(false);
   const [viewModal, setViewModal] = useState<
     | { mode: 'create' }
     | { mode: 'edit'; viewId: string; name: string; filters: SampleViewFilters }
@@ -154,6 +154,9 @@ export default function SamplesTab({
   const [newProduct, setNewProduct] = useState({ name: '', category: '', notes: '' });
   const [editingProduct, setEditingProduct] = useState<string | null>(null);
   const [editProductData, setEditProductData] = useState({ name: '' });
+  const [outreachOpen, setOutreachOpen] = useState<Record<string, boolean>>({});
+  const [outreachDraft, setOutreachDraft] = useState<Record<string, string>>({});
+  const [outreachSavingId, setOutreachSavingId] = useState<string | null>(null);
   const [moveProduct, setMoveProduct] = useState<{ kitProductId: string; name: string } | null>(null);
   const [moveTargetKitId, setMoveTargetKitId] = useState('');
   const [chatUrlModal, setChatUrlModal] = useState<{ supplierId: string } | null>(null);
@@ -170,8 +173,10 @@ export default function SamplesTab({
     dimHeight: '',
     dimWidth: '',
     dimLength: '',
+    trackingNumber: '',
   });
   const [newSampleFiles, setNewSampleFiles] = useState<File[]>([]);
+  const [isDraggingSampleFiles, setIsDraggingSampleFiles] = useState(false);
 
   // Inline editing state
   const [showRatingModal, setShowRatingModal] = useState<string | null>(null);
@@ -395,6 +400,86 @@ export default function SamplesTab({
     }
   };
 
+  const addSampleImageFiles = (incoming: File[]) => {
+    const images = incoming.filter((f) => f.type.startsWith('image/'));
+    if (images.length === 0) return;
+    setNewSampleFiles((prev) => [...prev, ...images]);
+  };
+
+  // Global paste handler while the Add Sample modal is open.
+  // Captures image files even when focus is in a text input (so a screenshot
+  // pasted while the supplier search is focused still gets attached). Plain
+  // text pastes are left alone.
+  useEffect(() => {
+    if (!showAddSample) return;
+    const handler = (e: ClipboardEvent) => {
+      const cd = e.clipboardData;
+      if (!cd) return;
+      const files: File[] = [];
+      // Prefer items (covers screenshots that arrive only as items, not files)
+      if (cd.items) {
+        for (const item of Array.from(cd.items)) {
+          if (item.kind === 'file' && item.type.startsWith('image/')) {
+            const f = item.getAsFile();
+            if (f) files.push(f);
+          }
+        }
+      }
+      // Fallback to files list (some browsers populate this instead)
+      if (files.length === 0 && cd.files && cd.files.length > 0) {
+        for (const f of Array.from(cd.files)) {
+          if (f.type.startsWith('image/')) files.push(f);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        addSampleImageFiles(files);
+        showToast(`נוספו ${files.length} תמונות מהקליפבורד`, 'success');
+      }
+    };
+    document.addEventListener('paste', handler);
+    return () => document.removeEventListener('paste', handler);
+  }, [showAddSample, showToast]);
+
+  const clearOutreachDraft = (kitProductId: string) => {
+    setOutreachDraft((prev) => {
+      const next = { ...prev };
+      delete next[kitProductId];
+      return next;
+    });
+  };
+
+  const handleSaveOutreachMessage = async (kitProductId: string, currentValue: string) => {
+    const draft = outreachDraft[kitProductId];
+    if (draft === undefined) return;
+    if (draft === currentValue) {
+      clearOutreachDraft(kitProductId);
+      return;
+    }
+    setOutreachSavingId(kitProductId);
+    try {
+      await updateProductMutation({ kitProductId, supplierOutreachMessage: draft });
+      showToast('הודעת פנייה נשמרה', 'success');
+      clearOutreachDraft(kitProductId);
+    } catch (error) {
+      console.error('Error saving outreach message:', error);
+      showToast('שגיאה בשמירת ההודעה', 'error');
+    } finally {
+      setOutreachSavingId(null);
+    }
+  };
+
+  const handleCopyOutreach = async (text: string) => {
+    if (!text.trim()) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('הועתק ללוח', 'success');
+    } catch (error) {
+      console.error('Error copying:', error);
+      showToast('שגיאה בהעתקה', 'error');
+    }
+  };
+
   const handleDeleteProduct = async (kitProductId: string) => {
     if (!(await confirm('האם למחוק את המוצר וכל הדוגמיות שלו?'))) return;
     try {
@@ -467,13 +552,30 @@ export default function SamplesTab({
         }
       }
 
+      // Add tracking if number provided. The leg is derived from the current
+      // stage — stages 3+ ("נשלח אלינו"/"הגיע") imply the agent→us leg, earlier
+      // stages imply supplier→agent.
+      if (newSample.trackingNumber.trim()) {
+        const leg = newSample.currentStage >= 3 ? 'סוכן אלינו' : 'ספק לסוכן';
+        await addTrackingMutation({
+          sampleId,
+          leg,
+          trackingNumber: newSample.trackingNumber.trim(),
+        });
+      }
+
       showToast('דוגמית נוספה בהצלחה', 'success');
       setShowAddSample(false);
-      setNewSample({ supplierId: '', supplierSearch: '', sampleCost: '', currentStage: 0, notes: '', weight: '', volume: '', dimHeight: '', dimWidth: '', dimLength: '' });
+      setNewSample({
+        supplierId: '', supplierSearch: '', sampleCost: '', currentStage: 0,
+        notes: '', weight: '', volume: '', dimHeight: '', dimWidth: '', dimLength: '',
+        trackingNumber: '',
+      });
       setNewSampleFiles([]);
     } catch (error) {
       console.error('Error adding sample:', error);
-      showToast('שגיאה בהוספת דוגמית', 'error');
+      const msg = error instanceof Error ? error.message : String(error);
+      showToast(`שגיאה בהוספת דוגמית: ${msg.slice(0, 200)}`, 'error');
     }
   };
 
@@ -899,51 +1001,113 @@ export default function SamplesTab({
           );
         })}
 
-        {/* Add tab popover */}
-        <div className="relative">
-          <button
-            onClick={() => setShowAddTabMenu((v) => !v)}
-            className="flex items-center gap-1 px-3 py-2.5 text-sm text-gray-400 hover:text-blue-600 hover:bg-gray-100 transition-colors border-l border-gray-200"
-            title="הוסף..."
-          >
-            <PlusIcon className="w-4 h-4" />
-          </button>
-          {showAddTabMenu && (
-            <>
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setShowAddTabMenu(false)}
-              />
-              <div className="absolute z-20 top-full mt-1 right-0 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
-                <button
-                  onClick={() => {
-                    setShowAddTabMenu(false);
-                    setShowAddProduct(true);
-                  }}
-                  className="w-full text-right px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                >
-                  <PlusIcon className="w-4 h-4 text-gray-400" />
-                  מוצר חדש
-                </button>
-                <button
-                  onClick={() => {
-                    setShowAddTabMenu(false);
-                    setViewModal({ mode: 'create' });
-                  }}
-                  className="w-full text-right px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                >
-                  <FunnelIcon className="w-4 h-4 text-gray-400" />
-                  תצוגה חדשה
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+        {/* Add product tab */}
+        <button
+          onClick={() => setShowAddProduct(true)}
+          className="flex items-center gap-1 px-3 py-2.5 text-sm text-gray-500 hover:text-blue-600 hover:bg-gray-100 transition-colors border-l border-gray-200"
+          title="הוסף מוצר חדש"
+        >
+          <PlusIcon className="w-4 h-4" />
+          <span className="font-medium">מוצר חדש</span>
+        </button>
+
+        {/* Add view tab */}
+        <button
+          onClick={() => setViewModal({ mode: 'create' })}
+          className="flex items-center gap-1 px-3 py-2.5 text-sm text-gray-400 hover:text-blue-600 hover:bg-gray-100 transition-colors border-l border-gray-200"
+          title="צור תצוגה שמורה חדשה"
+        >
+          <FunnelIcon className="w-4 h-4" />
+          <span>תצוגה</span>
+        </button>
       </div>
 
       {/* Table Content */}
       {(activeTab.type !== 'product' || activeProduct) ? (
         <div className="bg-white">
+          {/* Supplier outreach message (per kit product) */}
+          {activeTab.type === 'product' && activeProduct && (() => {
+            const kpId = activeProduct.kitProductId;
+            const stored = activeProduct.supplierOutreachMessage || '';
+            const isOpen = outreachOpen[kpId] ?? !!stored;
+            const draft = outreachDraft[kpId];
+            const value = draft !== undefined ? draft : stored;
+            const isDirty = draft !== undefined && draft !== stored;
+            const lineCount = (value.match(/\n/g)?.length || 0) + 2;
+            return (
+              <div className="border-b border-gray-100">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOutreachOpen((prev) => ({ ...prev, [kpId]: !isOpen }))
+                  }
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <ChatBubbleBottomCenterTextIcon className="w-4 h-4 text-gray-500" />
+                  <span className="font-medium">הודעת פנייה לספקים</span>
+                  {!isOpen && stored && (
+                    <span className="text-xs text-gray-400 truncate max-w-[60%]">
+                      {stored.slice(0, 80)}
+                    </span>
+                  )}
+                  <span className="mr-auto">
+                    {isOpen ? (
+                      <ChevronUpIcon className="w-4 h-4 text-gray-400" />
+                    ) : (
+                      <ChevronDownIcon className="w-4 h-4 text-gray-400" />
+                    )}
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="px-3 pb-3 pt-1 space-y-2">
+                    <textarea
+                      value={value}
+                      onChange={(e) =>
+                        setOutreachDraft((prev) => ({ ...prev, [kpId]: e.target.value }))
+                      }
+                      onBlur={() => handleSaveOutreachMessage(kpId, stored)}
+                      placeholder="תיאור הרכיב, כמות יעד, ממדים, מסמכים נדרשים, שאלות (מחיר, MOQ, זמן ייצור...)"
+                      rows={Math.min(20, Math.max(4, lineCount))}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
+                      disabled={outreachSavingId === kpId}
+                    />
+                    <div className="flex items-center justify-end gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyOutreach(value)}
+                        disabled={!value.trim()}
+                        className="flex items-center gap-1 px-2 py-1 text-gray-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg disabled:text-gray-300 disabled:hover:bg-transparent"
+                      >
+                        <ClipboardDocumentIcon className="w-3.5 h-3.5" />
+                        העתק
+                      </button>
+                      {isDirty && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => clearOutreachDraft(kpId)}
+                            className="px-2 py-1 text-gray-500 hover:text-gray-700"
+                            disabled={outreachSavingId === kpId}
+                          >
+                            ביטול
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveOutreachMessage(kpId, stored)}
+                            className="px-2.5 py-1 text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:bg-blue-300"
+                            disabled={outreachSavingId === kpId}
+                          >
+                            {outreachSavingId === kpId ? 'שומר...' : 'שמור'}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Tracking Search */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
             <MagnifyingGlassIcon className="w-4 h-4 text-gray-400" />
@@ -1440,7 +1604,11 @@ export default function SamplesTab({
               <button
                 onClick={() => {
                   setShowAddSample(true);
-                  setNewSample({ supplierId: '', supplierSearch: '', sampleCost: '', currentStage: 0, notes: '', weight: '', volume: '', dimHeight: '', dimWidth: '', dimLength: '' });
+                  setNewSample({
+                    supplierId: '', supplierSearch: '', sampleCost: '', currentStage: 0,
+                    notes: '', weight: '', volume: '', dimHeight: '', dimWidth: '', dimLength: '',
+                    trackingNumber: '',
+                  });
                   setNewSampleFiles([]);
                 }}
                 className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors"
@@ -1466,8 +1634,38 @@ export default function SamplesTab({
       {/* Add Product */}
       <Modal isOpen={showAddProduct} onClose={() => setShowAddProduct(false)} title="הוסף מוצר" size="sm">
         <div className="space-y-4">
-          <Input id="productName" label="שם מוצר" value={newProduct.name} onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })} placeholder="לדוגמה: ציפוי ננו" required />
-          <Input id="productCategory" label="קטגוריה" value={newProduct.category} onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })} />
+          <Input
+            id="productName"
+            label="שם מוצר"
+            value={newProduct.name}
+            onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+            placeholder="לדוגמה: ציפוי ננו"
+            required
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newProduct.name.trim()) handleAddProduct();
+            }}
+          />
+          <Input
+            id="productCategory"
+            label="קטגוריה"
+            value={newProduct.category}
+            onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
+            placeholder="לדוגמה: כיסויים, אריזה"
+          />
+          <div>
+            <label htmlFor="productNotes" className="block text-sm font-medium text-gray-700 mb-1">
+              הערות
+            </label>
+            <textarea
+              id="productNotes"
+              value={newProduct.notes}
+              onChange={(e) => setNewProduct({ ...newProduct, notes: e.target.value })}
+              placeholder="פרטים נוספים על המוצר"
+              rows={3}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 resize-y"
+            />
+          </div>
           <div className="flex justify-end gap-3 pt-4">
             <Button variant="secondary" onClick={() => setShowAddProduct(false)}>ביטול</Button>
             <Button onClick={handleAddProduct} disabled={!newProduct.name.trim()}>הוסף</Button>
@@ -1483,17 +1681,54 @@ export default function SamplesTab({
             {/* Image */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">תמונה</label>
-              <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+              <label
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!isDraggingSampleFiles) setIsDraggingSampleFiles(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingSampleFiles(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingSampleFiles(false);
+                  const dropped = Array.from(e.dataTransfer.files || []);
+                  if (dropped.length > 0) addSampleImageFiles(dropped);
+                }}
+                className={`flex flex-col items-center justify-center w-full min-h-[6rem] border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                  isDraggingSampleFiles
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                }`}
+              >
                 {newSampleFiles.length > 0 ? (
                   <div className="flex gap-1 flex-wrap justify-center p-1">
                     {newSampleFiles.map((f, i) => (
-                      <img key={i} src={URL.createObjectURL(f)} alt="" className="w-10 h-10 object-cover rounded" />
+                      <div key={i} className="relative group">
+                        <img src={URL.createObjectURL(f)} alt="" className="w-10 h-10 object-cover rounded" />
+                        <button
+                          type="button"
+                          onClick={(ev) => {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            setNewSampleFiles((prev) => prev.filter((_, idx) => idx !== i));
+                          }}
+                          className="absolute -top-1 -right-1 bg-white border border-gray-300 rounded-full w-4 h-4 flex items-center justify-center text-gray-500 hover:text-red-600 hover:border-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="הסר"
+                        >
+                          <XMarkIcon className="w-3 h-3" />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center">
+                  <div className="text-center px-2 py-2">
                     <PhotoIcon className="w-6 h-6 text-gray-400 mx-auto" />
-                    <span className="text-xs text-gray-400 mt-1">בחר תמונות</span>
+                    <span className="block text-xs text-gray-400 mt-1">בחר, גרור או הדבק</span>
                   </div>
                 )}
                 <input
@@ -1501,7 +1736,8 @@ export default function SamplesTab({
                   accept="image/*"
                   multiple
                   onChange={(e) => {
-                    if (e.target.files) setNewSampleFiles(Array.from(e.target.files));
+                    if (e.target.files) addSampleImageFiles(Array.from(e.target.files));
+                    e.target.value = '';
                   }}
                   className="hidden"
                 />
@@ -1574,6 +1810,14 @@ export default function SamplesTab({
 
           {/* Row 3: Notes */}
           <Input id="sampleNotes" label="הערות" value={newSample.notes} onChange={(e) => setNewSample({ ...newSample, notes: e.target.value })} />
+
+          {/* Row 4: Tracking number (optional) */}
+          <Input
+            id="newSampleTrackNum"
+            label="מספר מעקב (אופציונלי)"
+            value={newSample.trackingNumber}
+            onChange={(e) => setNewSample({ ...newSample, trackingNumber: e.target.value })}
+          />
 
           <div className="flex justify-end gap-3 pt-4">
             <Button variant="secondary" onClick={() => { setShowAddSample(false); setNewSampleFiles([]); }}>ביטול</Button>

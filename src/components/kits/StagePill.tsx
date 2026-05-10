@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { SAMPLE_STAGES, getStageStyle } from '@/lib/sampleStages';
 import { CheckCircleIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 
@@ -11,13 +12,38 @@ interface StagePillProps {
 
 export default function StagePill({ currentStage, onStageChange }: StagePillProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
+
+  // Position the portal-rendered dropdown anchored to the button
+  useLayoutEffect(() => {
+    if (!isOpen || !buttonRef.current) return;
+    const updatePosition = () => {
+      const rect = buttonRef.current!.getBoundingClientRect();
+      setCoords({
+        top: rect.bottom + 6,
+        right: window.innerWidth - rect.right,
+      });
+    };
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [isOpen]);
 
   // Close on outside click
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        buttonRef.current && !buttonRef.current.contains(target) &&
+        dropdownRef.current && !dropdownRef.current.contains(target)
+      ) {
         setIsOpen(false);
       }
     };
@@ -29,9 +55,10 @@ export default function StagePill({ currentStage, onStageChange }: StagePillProp
   const currentName = currentStage != null ? SAMPLE_STAGES[currentStage]?.name : null;
 
   return (
-    <div ref={ref} className="relative inline-block">
+    <div className="relative inline-block">
       {/* The single pill */}
       <button
+        ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
         title="לחץ לשינוי שלב"
         className={`inline-flex items-center gap-1.5 pr-3 pl-2 py-1 rounded-full text-xs font-medium transition-all ${style.bg} ${style.text} hover:shadow-sm hover:scale-105`}
@@ -43,13 +70,16 @@ export default function StagePill({ currentStage, onStageChange }: StagePillProp
         <ChevronDownIcon className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Dropdown */}
-      {isOpen && (
-        <div className="absolute top-full mt-1.5 right-0 z-30 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 min-w-[180px] animate-in fade-in slide-in-from-top-1 duration-150">
+      {/* Dropdown — portal so it escapes the table's stacking/overflow context */}
+      {isOpen && coords && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={dropdownRef}
+          style={{ position: 'fixed', top: coords.top, right: coords.right, zIndex: 1000 }}
+          className="bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 min-w-[180px] animate-in fade-in slide-in-from-top-1 duration-150"
+        >
           {SAMPLE_STAGES.map((stage) => {
             const isPast = currentStage != null && stage.id < currentStage;
             const isCurrent = stage.id === currentStage;
-            const isFuture = currentStage == null || stage.id > currentStage;
 
             return (
               <button
@@ -89,7 +119,8 @@ export default function StagePill({ currentStage, onStageChange }: StagePillProp
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

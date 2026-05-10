@@ -137,6 +137,7 @@ export default defineSchema({
     notes: v.optional(v.string()),
     createdDate: v.string(),
     targetKitCount: v.optional(v.number()),
+    requirementsDoc: v.optional(v.string()),
   })
     .index("by_kitId", ["kitId"]),
 
@@ -152,6 +153,7 @@ export default defineSchema({
     name: v.string(),
     category: v.optional(v.string()),
     notes: v.optional(v.string()),
+    supplierOutreachMessage: v.optional(v.string()),
   })
     .index("by_kitId", ["kitId"])
     .index("by_kitProductId", ["kitProductId"]),
