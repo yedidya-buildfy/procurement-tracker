@@ -65,6 +65,44 @@ export const getAllKits = query({
   },
 });
 
+// Flat list of every sample with its kit, product, supplier, and cost.
+// Used by the kits index page to render a detailed cost breakdown when
+// the user clicks the "עלות דוגמיות" KPI card.
+export const getSampleCostBreakdown = query({
+  args: {},
+  handler: async (ctx) => {
+    const samples = await ctx.db.query("samples").collect();
+    const kits = await ctx.db.query("kits").collect();
+    const kitProducts = await ctx.db.query("kitProducts").collect();
+    const suppliers = await ctx.db.query("suppliers").collect();
+
+    const kitById = new Map(kits.map((k) => [k.kitId, k]));
+    const productById = new Map(kitProducts.map((p) => [p.kitProductId, p]));
+    const supplierById = new Map(suppliers.map((s) => [s.supplierId, s]));
+
+    return samples
+      .map((s) => {
+        const product = productById.get(s.kitProductId);
+        const kit = product ? kitById.get(product.kitId) : undefined;
+        const supplier = supplierById.get(s.supplierId);
+        return {
+          sampleId: s.sampleId,
+          kitId: kit?.kitId ?? "",
+          kitName: kit?.name ?? "(לא ידוע)",
+          kitProductId: s.kitProductId,
+          productName: product?.name ?? "(לא ידוע)",
+          supplierId: s.supplierId,
+          supplierName: supplier?.name ?? "(לא ידוע)",
+          sampleCost: s.sampleCost ?? 0,
+          currentStage: s.currentStage ?? null,
+          paid: s.paid,
+          createdDate: s.createdDate,
+        };
+      })
+      .filter((row) => row.sampleCost > 0);
+  },
+});
+
 export const getAllKitsWithFinalCounts = query({
   args: {},
   handler: async (ctx) => {

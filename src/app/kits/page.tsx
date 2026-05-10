@@ -114,6 +114,11 @@ export default function KitsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [editingKitId, setEditingKitId] = useState<string | null>(null);
   const [editKitName, setEditKitName] = useState('');
+  const [showCostBreakdown, setShowCostBreakdown] = useState(false);
+  const costBreakdown = useQuery(
+    api.kits.getSampleCostBreakdown,
+    showCostBreakdown ? {} : 'skip'
+  );
   const { showToast } = useToast();
 
   const handleCreateKit = async () => {
@@ -220,19 +225,26 @@ export default function KitsPage() {
             </div>
           </Card>
 
-          <Card>
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <CurrencyDollarIcon className="w-6 h-6 text-purple-600" />
+          <button
+            type="button"
+            onClick={() => setShowCostBreakdown(true)}
+            className="text-right rounded-2xl focus:outline-none focus:ring-2 focus:ring-purple-300"
+            title="לחץ לפירוט מלא"
+          >
+            <Card className="hover:shadow-md hover:border-purple-200 transition-all cursor-pointer">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <CurrencyDollarIcon className="w-6 h-6 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">עלות דוגמיות</p>
+                  <p className="text-xl font-bold text-gray-900">
+                    ${kits.reduce((sum, k) => sum + (k.totalSampleCost || 0), 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-gray-500">עלות דוגמיות</p>
-                <p className="text-xl font-bold text-gray-900">
-                  ${kits.reduce((sum, k) => sum + (k.totalSampleCost || 0), 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}
-                </p>
-              </div>
-            </div>
-          </Card>
+            </Card>
+          </button>
         </div>
 
         {/* Search */}
@@ -330,6 +342,15 @@ export default function KitsPage() {
                       </div>
                     )}
 
+                    {(kit.totalSampleCost || 0) > 0 && (
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <CurrencyDollarIcon className="w-4 h-4 text-gray-400" />
+                        <span>
+                          ${kit.totalSampleCost.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+
                     <div className="text-sm text-gray-500">
                       {formatDate(kit.createdDate)}
                     </div>
@@ -416,6 +437,78 @@ export default function KitsPage() {
         variant="danger"
         isLoading={isDeleting}
       />
+
+      {/* Cost breakdown modal */}
+      <Modal
+        isOpen={showCostBreakdown}
+        onClose={() => setShowCostBreakdown(false)}
+        title="פירוט עלות דוגמיות"
+        size="lg"
+      >
+        {costBreakdown === undefined ? (
+          <div className="flex justify-center py-8">
+            <Spinner />
+          </div>
+        ) : costBreakdown.length === 0 ? (
+          <p className="text-center text-gray-500 py-8">אין דוגמיות עם עלות רשומה.</p>
+        ) : (
+          (() => {
+            const grouped = new Map<string, { kitName: string; rows: typeof costBreakdown; subtotal: number }>();
+            for (const row of costBreakdown) {
+              const k = grouped.get(row.kitId) || { kitName: row.kitName, rows: [], subtotal: 0 };
+              k.rows.push(row);
+              k.subtotal += row.sampleCost;
+              grouped.set(row.kitId, k);
+            }
+            const grandTotal = costBreakdown.reduce((s, r) => s + r.sampleCost, 0);
+            return (
+              <div className="space-y-5 max-h-[70vh] overflow-y-auto">
+                {Array.from(grouped.entries()).map(([kitId, g]) => (
+                  <div key={kitId} className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="flex items-center justify-between bg-gray-50 px-4 py-2 border-b border-gray-200">
+                      <Link href={`/kits/${kitId}/samples`} className="font-semibold text-gray-900 hover:text-blue-600">
+                        {g.kitName}
+                      </Link>
+                      <span className="text-sm font-semibold text-purple-700">
+                        ${g.subtotal.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead className="bg-white text-xs text-gray-500">
+                        <tr>
+                          <th className="text-right px-4 py-2 font-medium">מוצר</th>
+                          <th className="text-right px-4 py-2 font-medium">ספק</th>
+                          <th className="text-right px-4 py-2 font-medium">עלות</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {g.rows
+                          .slice()
+                          .sort((a, b) => b.sampleCost - a.sampleCost)
+                          .map((r) => (
+                            <tr key={r.sampleId} className="border-t border-gray-100">
+                              <td className="px-4 py-2 text-gray-800">{r.productName}</td>
+                              <td className="px-4 py-2 text-gray-700">{r.supplierName}</td>
+                              <td className="px-4 py-2 font-mono text-gray-900">
+                                ${r.sampleCost.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between border-t border-gray-200 pt-3">
+                  <span className="text-sm text-gray-500">סה"כ ({costBreakdown.length} דוגמיות)</span>
+                  <span className="text-lg font-bold text-purple-700">
+                    ${grandTotal.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            );
+          })()
+        )}
+      </Modal>
     </div>
   );
 }
