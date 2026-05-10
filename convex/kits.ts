@@ -27,6 +27,7 @@ export const getAllKits = query({
 
         let totalSamples = 0;
         let pendingSamples = 0;
+        let totalSampleCost = 0;
 
         for (const product of products) {
           const samples = await ctx.db
@@ -36,6 +37,9 @@ export const getAllKits = query({
           totalSamples += samples.length;
 
           for (const sample of samples) {
+            if (typeof sample.sampleCost === "number") {
+              totalSampleCost += sample.sampleCost;
+            }
             const milestones = await ctx.db
               .query("sampleMilestones")
               .withIndex("by_sampleId", (q) => q.eq("sampleId", sample.sampleId))
@@ -52,6 +56,7 @@ export const getAllKits = query({
           productCount: products.length,
           totalSamples,
           pendingSamples,
+          totalSampleCost,
         };
       })
     );

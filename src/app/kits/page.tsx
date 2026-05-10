@@ -17,6 +17,7 @@ import {
   MagnifyingGlassIcon,
   BeakerIcon,
   CubeIcon,
+  CurrencyDollarIcon,
   TrashIcon,
   PencilIcon,
   CheckIcon,
@@ -178,7 +179,7 @@ export default function KitsPage() {
           </div>
         </div>
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <Card>
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-100 rounded-lg">
@@ -214,6 +215,20 @@ export default function KitsPage() {
                 <p className="text-sm text-gray-500">דוגמיות ממתינות</p>
                 <p className="text-xl font-bold text-gray-900">
                   {kits.reduce((sum, k) => sum + k.pendingSamples, 0)}
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <CurrencyDollarIcon className="w-6 h-6 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">עלות דוגמיות</p>
+                <p className="text-xl font-bold text-gray-900">
+                  ${kits.reduce((sum, k) => sum + (k.totalSampleCost || 0), 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}
                 </p>
               </div>
             </div>
