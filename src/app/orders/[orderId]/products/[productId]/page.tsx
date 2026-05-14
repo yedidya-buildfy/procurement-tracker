@@ -468,7 +468,7 @@ export default function ProductPage({
         {/* Source Link */}
         {product.sourceKitId && (
           <Link
-            href={`/kits/${product.sourceKitId}`}
+            href={`/kits/${product.sourceKitId}/samples`}
             className="block bg-indigo-50 border border-indigo-200 rounded-xl p-4 hover:bg-indigo-100 transition-colors"
           >
             <div className="flex items-center gap-3">

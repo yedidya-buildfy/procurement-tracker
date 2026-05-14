@@ -45,8 +45,7 @@ function buildCrumbs(pathname: string): Crumb[] {
   if (kitSamplesMatch) {
     return [
       { label: 'ערכות ודוגמיות', href: '/kits' },
-      { label: <KitNameCrumb kitId={kitSamplesMatch[1]} />, href: `/kits/${kitSamplesMatch[1]}` },
-      { label: 'דוגמיות' },
+      { label: <KitNameCrumb kitId={kitSamplesMatch[1]} /> },
     ];
   }
 
@@ -62,15 +61,6 @@ function buildCrumbs(pathname: string): Crumb[] {
   // /final-purchase
   if (pathname === '/final-purchase') {
     return [{ label: 'רכישה סופית' }];
-  }
-
-  // /kits/[kitId]
-  const kitMatch = pathname.match(/^\/kits\/([^/]+)$/);
-  if (kitMatch) {
-    return [
-      { label: 'ערכות ודוגמיות', href: '/kits' },
-      { label: <KitNameCrumb kitId={kitMatch[1]} /> },
-    ];
   }
 
   // /kits

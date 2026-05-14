@@ -317,7 +317,7 @@ export default function KitsPage() {
                           </button>
                         </div>
                       ) : (
-                        <Link href={`/kits/${kit.kitId}`} className="block cursor-pointer">
+                        <Link href={`/kits/${kit.kitId}/samples`} className="block cursor-pointer">
                           <h3 className="font-semibold text-gray-900 truncate">{kit.name}</h3>
                           <p className="text-sm text-gray-500">{kit.kitId}</p>
                         </Link>

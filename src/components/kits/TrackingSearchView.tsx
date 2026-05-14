@@ -388,7 +388,7 @@ export default function TrackingSearchView() {
                 <td className="px-2 py-1 text-xs text-gray-500 whitespace-nowrap">{item.leg}</td>
                 <td className="px-2 py-1 font-medium text-gray-900 text-xs truncate max-w-[80px]" title={item.supplierName}>{item.supplierName}</td>
                 <td className="px-2 py-1 text-xs text-gray-500 truncate max-w-[80px]" title={item.kitName}>
-                  <Link href={`/kits/${item.kitId}`} className="hover:text-blue-600 hover:underline">{item.kitName}</Link>
+                  <Link href={`/kits/${item.kitId}/samples`} className="hover:text-blue-600 hover:underline">{item.kitName}</Link>
                 </td>
                 <td className="px-2 py-1 text-xs text-gray-500 truncate max-w-[70px]" title={item.productName}>{item.productName}</td>
                 <td className="px-2 py-1">
