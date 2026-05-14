@@ -188,10 +188,26 @@ export default function SamplesTab({
   const [uploadingSampleId, setUploadingSampleId] = useState<string | null>(null);
   const [editingSampleId, setEditingSampleId] = useState<string | null>(null);
   const [editSampleForm, setEditSampleForm] = useState({
+    supplierId: '',
+    supplierSearch: '',
     sampleCost: '',
     currentStage: 0,
     notes: '',
+    rating: 0,
+    ratingNotes: '',
+    paid: false,
+    weight: '',
+    volume: '',
+    dimHeight: '',
+    dimWidth: '',
+    dimLength: '',
   });
+  const [editSampleNewFiles, setEditSampleNewFiles] = useState<File[]>([]);
+  const [editSampleDeletedImageIds, setEditSampleDeletedImageIds] = useState<Set<string>>(new Set());
+  const [isDraggingEditFiles, setIsDraggingEditFiles] = useState(false);
+
+  // Row-level drag-and-drop for quick image upload
+  const [dragOverSampleId, setDragOverSampleId] = useState<string | null>(null);
 
   // Filter & sort
   const [starFilter, setStarFilter] = useState<number | null>(null);
@@ -441,6 +457,36 @@ export default function SamplesTab({
     return () => document.removeEventListener('paste', handler);
   }, [showAddSample, showToast]);
 
+  // Global paste handler while the Edit Sample modal is open.
+  useEffect(() => {
+    if (!editingSampleId) return;
+    const handler = (e: ClipboardEvent) => {
+      const cd = e.clipboardData;
+      if (!cd) return;
+      const files: File[] = [];
+      if (cd.items) {
+        for (const item of Array.from(cd.items)) {
+          if (item.kind === 'file' && item.type.startsWith('image/')) {
+            const f = item.getAsFile();
+            if (f) files.push(f);
+          }
+        }
+      }
+      if (files.length === 0 && cd.files && cd.files.length > 0) {
+        for (const f of Array.from(cd.files)) {
+          if (f.type.startsWith('image/')) files.push(f);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        setEditSampleNewFiles((prev) => [...prev, ...files]);
+        showToast(`נוספו ${files.length} תמונות מהקליפבורד`, 'success');
+      }
+    };
+    document.addEventListener('paste', handler);
+    return () => document.removeEventListener('paste', handler);
+  }, [editingSampleId, showToast]);
+
   const clearOutreachDraft = (kitProductId: string) => {
     setOutreachDraft((prev) => {
       const next = { ...prev };
@@ -625,31 +671,8 @@ export default function SamplesTab({
     }
   };
 
-  const startEditSample = (sample: Doc<'samples'>) => {
-    setEditingSampleId(sample.sampleId);
-    setEditSampleForm({
-      sampleCost: sample.sampleCost?.toString() || '',
-      currentStage: sample.currentStage ?? 0,
-      notes: sample.notes || '',
-    });
-  };
 
-  const handleUpdateSample = async () => {
-    if (!editingSampleId) return;
-    try {
-      await updateSampleMutation({
-        sampleId: editingSampleId,
-        sampleCost: editSampleForm.sampleCost ? parseFloat(editSampleForm.sampleCost) : undefined,
-        currentStage: editSampleForm.currentStage,
-        notes: editSampleForm.notes || undefined,
-      });
-      showToast('דוגמית עודכנה', 'success');
-      setEditingSampleId(null);
-    } catch (error) {
-      console.error('Error updating sample:', error);
-      showToast('שגיאה בעדכון דוגמית', 'error');
-    }
-  };
+
 
   const handleArchiveSample = async (sample: Doc<'samples'>) => {
     const newValue = !sample.archived;
@@ -657,7 +680,7 @@ export default function SamplesTab({
     showToast(newValue ? 'דוגמית הועברה לארכיון' : 'דוגמית שוחזרה', 'success');
   };
 
-  const handleUploadImages = async (sampleId: string, files: FileList) => {
+  const handleUploadImages = async (sampleId: string, files: ArrayLike<File>) => {
     setUploadingSampleId(sampleId);
     try {
       for (let i = 0; i < files.length; i++) {
@@ -673,6 +696,63 @@ export default function SamplesTab({
       showToast('שגיאה בהעלאת תמונות', 'error');
     } finally {
       setUploadingSampleId(null);
+    }
+  };
+
+  const startEditSample = (sample: Doc<'samples'>) => {
+    setEditingSampleId(sample.sampleId);
+    setEditSampleNewFiles([]);
+    setEditSampleDeletedImageIds(new Set());
+    setEditSampleForm({
+      supplierId: sample.supplierId,
+      supplierSearch: getSupplierName(sample.supplierId),
+      sampleCost: sample.sampleCost?.toString() || '',
+      currentStage: sample.currentStage ?? 0,
+      notes: sample.notes || '',
+      rating: sample.rating || 0,
+      ratingNotes: sample.ratingNotes || '',
+      paid: sample.paid || false,
+      weight: sample.weight?.toString() || '',
+      volume: sample.volume?.toString() || '',
+      dimHeight: sample.dimHeight?.toString() || '',
+      dimWidth: sample.dimWidth?.toString() || '',
+      dimLength: sample.dimLength?.toString() || '',
+    });
+  };
+
+  const handleUpdateSample = async () => {
+    if (!editingSampleId) return;
+    try {
+      // Delete removed images
+      for (const id of editSampleDeletedImageIds) {
+        await deleteImageMutation({ id: id as Id<'sampleImages'> });
+      }
+      // Upload new images
+      if (editSampleNewFiles.length > 0) {
+        await handleUploadImages(editingSampleId, editSampleNewFiles);
+      }
+      await updateSampleMutation({
+        sampleId: editingSampleId,
+        supplierId: editSampleForm.supplierId || undefined,
+        sampleCost: editSampleForm.sampleCost ? parseFloat(editSampleForm.sampleCost) : undefined,
+        currentStage: editSampleForm.currentStage,
+        notes: editSampleForm.notes || undefined,
+        rating: editSampleForm.rating || undefined,
+        ratingNotes: editSampleForm.ratingNotes || undefined,
+        paid: editSampleForm.paid,
+        weight: editSampleForm.weight ? parseFloat(editSampleForm.weight) : undefined,
+        volume: editSampleForm.volume ? parseFloat(editSampleForm.volume) : undefined,
+        dimHeight: editSampleForm.dimHeight ? parseFloat(editSampleForm.dimHeight) : undefined,
+        dimWidth: editSampleForm.dimWidth ? parseFloat(editSampleForm.dimWidth) : undefined,
+        dimLength: editSampleForm.dimLength ? parseFloat(editSampleForm.dimLength) : undefined,
+      });
+      showToast('דוגמית עודכנה', 'success');
+      setEditingSampleId(null);
+      setEditSampleNewFiles([]);
+      setEditSampleDeletedImageIds(new Set());
+    } catch (error) {
+      console.error('Error updating sample:', error);
+      showToast('שגיאה בעדכון דוגמית', 'error');
     }
   };
 
@@ -1327,7 +1407,28 @@ export default function SamplesTab({
                     return (
                       <tr
                         key={sample.sampleId}
-                        className={`border-b border-gray-100 hover:bg-blue-50/30 ${sample.archived ? 'opacity-50' : ''} ${selectedSampleIds.has(sample.sampleId) ? 'bg-blue-50/50' : ''}`}
+                        className={`border-b border-gray-100 hover:bg-blue-50/30 ${sample.archived ? 'opacity-50' : ''} ${selectedSampleIds.has(sample.sampleId) ? 'bg-blue-50/50' : ''} ${dragOverSampleId === sample.sampleId ? 'outline outline-2 outline-blue-400 bg-blue-50/60' : ''}`}
+                        onDragOver={(e) => {
+                          if (Array.from(e.dataTransfer.types || []).includes('Files')) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (dragOverSampleId !== sample.sampleId) setDragOverSampleId(sample.sampleId);
+                          }
+                        }}
+                        onDragLeave={(e) => {
+                          const related = e.relatedTarget as Node | null;
+                          if (!related || !(e.currentTarget as Node).contains(related)) {
+                            setDragOverSampleId((id) => (id === sample.sampleId ? null : id));
+                          }
+                        }}
+                        onDrop={(e) => {
+                          const dropped = Array.from(e.dataTransfer.files || []);
+                          if (dropped.length === 0) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDragOverSampleId(null);
+                          handleUploadImages(sample.sampleId, dropped);
+                        }}
                       >
                         {/* Checkbox */}
                         <td className="px-2 py-2 text-center align-middle">
@@ -1869,8 +1970,123 @@ export default function SamplesTab({
       </Modal>
 
       {/* Edit Sample */}
-      <Modal isOpen={!!editingSampleId} onClose={() => setEditingSampleId(null)} title="עריכת דוגמית" size="lg">
+      <Modal isOpen={!!editingSampleId} onClose={() => { setEditingSampleId(null); setEditSampleNewFiles([]); setEditSampleDeletedImageIds(new Set()); }} title="עריכת דוגמית" size="lg">
         <div className="space-y-4">
+          {/* Images */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">תמונות</label>
+            <label
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!isDraggingEditFiles) setIsDraggingEditFiles(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingEditFiles(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingEditFiles(false);
+                const dropped = Array.from(e.dataTransfer.files || []).filter((f) => f.type.startsWith('image/'));
+                if (dropped.length > 0) setEditSampleNewFiles((prev) => [...prev, ...dropped]);
+              }}
+              className={`flex flex-wrap gap-2 items-center w-full min-h-[6rem] p-2 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                isDraggingEditFiles ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+              }`}
+            >
+              {sampleImages
+                .filter((i) => i.sampleId === editingSampleId && !editSampleDeletedImageIds.has(i._id))
+                .map((img) => (
+                  <div key={img._id} className="relative group">
+                    {img.url && (
+                      <img src={img.url} alt="" className="w-16 h-16 object-cover rounded-lg border border-gray-200" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={(ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        setEditSampleDeletedImageIds((prev) => new Set(prev).add(img._id));
+                      }}
+                      className="absolute -top-1 -right-1 bg-white border border-gray-300 rounded-full w-4 h-4 flex items-center justify-center text-gray-500 hover:text-red-600 hover:border-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="הסר"
+                    >
+                      <XMarkIcon className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              {editSampleNewFiles.map((f, i) => (
+                <div key={`new-${i}`} className="relative group">
+                  <img src={URL.createObjectURL(f)} alt="" className="w-16 h-16 object-cover rounded-lg border border-blue-300" />
+                  <button
+                    type="button"
+                    onClick={(ev) => {
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      setEditSampleNewFiles((prev) => prev.filter((_, idx) => idx !== i));
+                    }}
+                    className="absolute -top-1 -right-1 bg-white border border-gray-300 rounded-full w-4 h-4 flex items-center justify-center text-gray-500 hover:text-red-600 hover:border-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <XMarkIcon className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex flex-col items-center justify-center text-gray-400 px-3">
+                <PhotoIcon className="w-6 h-6" />
+                <span className="text-xs mt-1">בחר, גרור או הדבק</span>
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => {
+                  if (e.target.files) {
+                    const added = Array.from(e.target.files).filter((f) => f.type.startsWith('image/'));
+                    setEditSampleNewFiles((prev) => [...prev, ...added]);
+                  }
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+            </label>
+          </div>
+
+          {/* Supplier */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">ספק</label>
+            <div className="relative">
+              <input
+                type="text"
+                value={editSampleForm.supplierSearch}
+                onChange={(e) => setEditSampleForm({ ...editSampleForm, supplierSearch: e.target.value, supplierId: '' })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="חפש ספק..."
+              />
+              {editSampleForm.supplierSearch && !editSampleForm.supplierId && (
+                <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {allSuppliers
+                    .filter((s) => s.name.toLowerCase().includes(editSampleForm.supplierSearch.toLowerCase()))
+                    .map((s) => (
+                      <button
+                        key={s.supplierId}
+                        onClick={() => setEditSampleForm({ ...editSampleForm, supplierId: s.supplierId, supplierSearch: s.name })}
+                        className="w-full text-right px-3 py-2 hover:bg-blue-50 text-sm"
+                      >
+                        {s.name}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+            {editSampleForm.supplierId && (
+              <p className="text-xs text-green-600 mt-1">נבחר: {getSupplierName(editSampleForm.supplierId)}</p>
+            )}
+          </div>
+
+          {/* Cost + Stage */}
           <div className="grid grid-cols-2 gap-4">
             <Input id="editCost" label="עלות ($)" type="number" value={editSampleForm.sampleCost} onChange={(e) => setEditSampleForm({ ...editSampleForm, sampleCost: e.target.value })} placeholder="0" />
             <div>
@@ -1886,9 +2102,138 @@ export default function SamplesTab({
               </select>
             </div>
           </div>
-          <Input id="editNotes" label="הערות" value={editSampleForm.notes} onChange={(e) => setEditSampleForm({ ...editSampleForm, notes: e.target.value })} />
+
+          {/* Paid */}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={editSampleForm.paid}
+              onChange={(e) => setEditSampleForm({ ...editSampleForm, paid: e.target.checked })}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">שולם</span>
+          </label>
+
+          {/* Tracking numbers */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">מספרי מעקב</label>
+            <div className="space-y-1.5">
+              {trackingNumbers
+                .filter((t) => t.sampleId === editingSampleId)
+                .map((t) => (
+                  <div key={t._id} className="flex items-center gap-2 text-sm bg-gray-50 px-2 py-1 rounded">
+                    <span className="text-gray-500 text-xs">{t.leg}:</span>
+                    <span className="font-mono text-gray-700 flex-1 truncate" title={t.trackingNumber}>{t.trackingNumber}</span>
+                    <button
+                      type="button"
+                      onClick={() => deleteTrackingMutation({ id: t._id })}
+                      className="p-0.5 text-red-400 hover:text-red-600"
+                      title="מחק"
+                    >
+                      <XMarkIcon className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              {trackingNumbers.filter((t) => t.sampleId === editingSampleId).length === 0 && (
+                <p className="text-xs text-gray-400">אין מספרי מעקב</p>
+              )}
+            </div>
+            <div className="grid grid-cols-[1fr_1.5fr_auto] gap-2 mt-2">
+              <select
+                value={newTracking.leg}
+                onChange={(e) => setNewTracking({ ...newTracking, leg: e.target.value })}
+                className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">קטע...</option>
+                <option value="ספק לסוכן">ספק לסוכן</option>
+                <option value="סוכן אלינו">סוכן אלינו</option>
+                <option value="אחר">אחר</option>
+              </select>
+              <input
+                type="text"
+                value={newTracking.trackingNumber}
+                onChange={(e) => setNewTracking({ ...newTracking, trackingNumber: e.target.value })}
+                placeholder="מספר מעקב"
+                className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                disabled={!editingSampleId || !newTracking.leg || !newTracking.trackingNumber.trim()}
+                onClick={async () => {
+                  if (!editingSampleId || !newTracking.leg || !newTracking.trackingNumber.trim()) return;
+                  try {
+                    await addTrackingMutation({
+                      sampleId: editingSampleId,
+                      leg: newTracking.leg,
+                      trackingNumber: newTracking.trackingNumber,
+                    });
+                    setNewTracking({ leg: '', trackingNumber: '', carrier: '' });
+                  } catch (error) {
+                    console.error('Error adding tracking:', error);
+                    showToast('שגיאה בהוספת מספר מעקב', 'error');
+                  }
+                }}
+                className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-lg"
+              >
+                הוסף
+              </button>
+            </div>
+          </div>
+
+          {/* Rating */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">דירוג</label>
+            <div className="flex items-center gap-1">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setEditSampleForm({ ...editSampleForm, rating: star === editSampleForm.rating ? 0 : star })}
+                  className="p-0.5"
+                >
+                  {star <= editSampleForm.rating ? (
+                    <StarSolid className="w-6 h-6 text-yellow-400" />
+                  ) : (
+                    <StarOutline className="w-6 h-6 text-gray-300 hover:text-yellow-300" />
+                  )}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={editSampleForm.ratingNotes}
+              onChange={(e) => setEditSampleForm({ ...editSampleForm, ratingNotes: e.target.value })}
+              rows={2}
+              placeholder="הערות לדירוג"
+              className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+          </div>
+
+          {/* Dimensions + Weight */}
+          <DimensionInput
+            dimHeight={editSampleForm.dimHeight}
+            dimWidth={editSampleForm.dimWidth}
+            dimLength={editSampleForm.dimLength}
+            volume={editSampleForm.volume}
+            weight={editSampleForm.weight}
+            showWeight={true}
+            onDimChange={(field, value) => setEditSampleForm({ ...editSampleForm, [field]: value })}
+            onVolumeChange={(value) => setEditSampleForm({ ...editSampleForm, volume: value, dimHeight: '', dimWidth: '', dimLength: '' })}
+            onWeightChange={(value) => setEditSampleForm({ ...editSampleForm, weight: value })}
+          />
+
+          {/* Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
+            <textarea
+              value={editSampleForm.notes}
+              onChange={(e) => setEditSampleForm({ ...editSampleForm, notes: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            />
+          </div>
+
           <div className="flex justify-end gap-3 pt-4">
-            <Button variant="secondary" onClick={() => setEditingSampleId(null)}>ביטול</Button>
+            <Button variant="secondary" onClick={() => { setEditingSampleId(null); setEditSampleNewFiles([]); setEditSampleDeletedImageIds(new Set()); }}>ביטול</Button>
             <Button onClick={handleUpdateSample}>שמור</Button>
           </div>
         </div>
